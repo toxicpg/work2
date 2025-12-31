@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+.idea/
+.vscode/
+
+# Ignore data and results folders (to avoid large file upload failures)
+data/
+results/
+logs/
+utils/data/
+
+# Ignore model weight files
+*.pth
+
+# Ignore generated images and temporary files
+*.png
+*.csv
+*.json
+*.pkl
