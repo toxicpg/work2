@@ -41,14 +41,14 @@ try:
     from config import Config
     from utils.data_process import DataProcessor
     from utils.graph_builder import GraphBuilder
-    # 我们需要 RideHailingEnvironment 来运行模拟
-    from environment_back import RideHailingEnvironment
+    # 使用 BaselineEnvironment 进行基准测试
+    from environment_baseline import BaselineEnvironment
     # (evaluate 模块中的 print_evaluation_results 可能有用)
     from evaluate import print_evaluation_results
 except ImportError as e:
     print(f"导入错误: {e}")
     print("请确保 random_walk.py 在 baselines 文件夹下，")
-    print("并且 config.py, utils/, models/, environment.py, evaluate.py 等在上一级目录 (work2)。")
+    print("并且 config.py, utils/, models/, environment_baseline.py, evaluate.py 等在上一级目录 (work2)。")
     sys.exit(1)
 # ---------------------------
 
@@ -85,7 +85,7 @@ def run_random_walk_simulation(config, num_episodes, env_data):
     # 1. 创建环境实例
     try:
         data_processor = DataProcessor(config)
-        env = RideHailingEnvironment(config, data_processor, env_data, dispatch_policy='random_walk')
+        env = BaselineEnvironment(config, data_processor, env_data, dispatch_policy='random_walk')
     except Exception as e:
         print(f"创建环境时出错: {e}")
         return {}
@@ -163,7 +163,7 @@ def run_random_walk_simulation(config, num_episodes, env_data):
 def run_last7_days_random_walk(config, env_data):
     try:
         data_processor = DataProcessor(config)
-        env = RideHailingEnvironment(config, data_processor, env_data, dispatch_policy='random_walk')
+        env = BaselineEnvironment(config, data_processor, env_data, dispatch_policy='random_walk')
     except Exception as e:
         print(f"创建环境时出错: {e}")
         return []

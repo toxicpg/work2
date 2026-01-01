@@ -1,0 +1,126 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                     消融实验快速开始指南                                    ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+【1】运行所有消融实验（推荐）
+────────────────────────────────────────────────────────────────────────────
+$ python run_ablation_simple.py --episodes 5
+
+输出: 7 种消融类型的对比报告 + 结果保存到 results/ablation_studies/
+
+
+【2】运行特定消融类型
+────────────────────────────────────────────────────────────────────────────
+$ python run_ablation_simple.py --ablation full_model --episodes 10
+$ python run_ablation_simple.py --ablation no_mgcn --episodes 10
+$ python run_ablation_simple.py --ablation no_dueling --episodes 10
+$ python run_ablation_simple.py --ablation no_per --episodes 10
+$ python run_ablation_simple.py --ablation no_multi_stage_reward --episodes 10
+$ python run_ablation_simple.py --ablation no_attention_fusion --episodes 10
+$ python run_ablation_simple.py --ablation minimal --episodes 10
+
+
+【3】消融类型说明
+────────────────────────────────────────────────────────────────────────────
+full_model (完整模型)
+  ✓ MGCN + Dueling DQN + PER + 多阶段奖励 + 注意力融合
+  → 基准模型，性能上界
+
+no_mgcn (无 MGCN)
+  ✗ MGCN → MLP
+  → 评估图卷积网络的贡献
+
+no_dueling (无 Dueling DQN)
+  ✗ Dueling → 标准 DQN
+  → 评估值流和优势流分离的贡献
+
+no_per (无 PER)
+  ✗ 优先级采样 → 统一采样
+  → 评估优先级经验回放的贡献
+
+no_multi_stage_reward (无多阶段奖励)
+  ✗ 复杂奖励 → 简化奖励
+  → 评估复杂奖励函数的贡献
+
+no_attention_fusion (无注意力融合)
+  ✗ 注意力融合 → 简单拼接
+  → 评估注意力机制的贡献
+
+minimal (最小化模型)
+  ✗ 所有优化组件都被禁用
+  → 评估所有优化的累积贡献
+
+
+【4】理解结果
+────────────────────────────────────────────────────────────────────────────
+输出示例:
+┌─────────────────────┬──────────────┬──────────────┬──────────────┐
+│ Ablation Type       │ Avg Reward   │ Avg Loss     │ Final Epsilon│
+├─────────────────────┼──────────────┼──────────────┼──────────────┤
+│ full_model          │ 1456.78      │ 0.0145       │ 0.0500       │
+│ no_mgcn             │ 1234.56      │ 0.0198       │ 0.0500       │
+│ no_dueling          │ 1398.90      │ 0.0156       │ 0.0500       │
+│ no_per              │ 1420.34      │ 0.0167       │ 0.0500       │
+│ no_multi_stage_...  │ 1389.12      │ 0.0172       │ 0.0500       │
+│ no_attention_...    │ 1445.67      │ 0.0149       │ 0.0500       │
+│ minimal             │ 1156.34      │ 0.0234       │ 0.0500       │
+└─────────────────────┴──────────────┴──────────────┴──────────────┘
+
+性能差异分析:
+  no_mgcn: -222.22 (-15.3%) ← MGCN 很重要！
+  no_dueling: -57.88 (-4.0%)  ← Dueling 有作用
+  no_per: -36.44 (-2.5%)      ← PER 影响较小
+  no_multi_stage_reward: -67.66 (-4.6%) ← 奖励函数有作用
+  no_attention_fusion: -11.11 (-0.8%)   ← 注意力影响最小
+  minimal: -300.44 (-20.6%)   ← 所有优化的总贡献
+
+
+【5】性能评估标准
+────────────────────────────────────────────────────────────────────────────
+性能下降程度    │ 组件重要性
+────────────────┼─────────────────────────
+> 20%           │ ★★★★★ 非常重要 - 核心组件
+10-20%          │ ★★★★☆ 很重要 - 重要优化
+5-10%           │ ★★★☆☆ 较为重要 - 有贡献
+2-5%            │ ★★☆☆☆ 有作用 - 适度优化
+< 2%            │ ★☆☆☆☆ 影响较小 - 可选优化
+
+
+【6】常见问题
+────────────────────────────────────────────────────────────────────────────
+Q: 运行一次需要多长时间？
+A: 5 episodes ≈ 30-60 分钟（取决于硬件）
+
+Q: 为什么某个消融的性能比完整模型更好？
+A: 可能是随机波动，运行更多 episodes 来确认
+
+Q: 结果保存在哪里？
+A: results/ablation_studies/ablation_results_<timestamp>.json
+
+Q: 如何只运行一个消融类型？
+A: python run_ablation_simple.py --ablation no_mgcn --episodes 10
+
+Q: 能否增加 episodes 数量获得更稳定的结果？
+A: 可以！运行 --episodes 20 或更多
+
+
+【7】文件结构
+────────────────────────────────────────────────────────────────────────────
+ablation_study.py              - 原始消融实验框架（高级用法）
+run_ablation_simple.py         - 简化的消融实验脚本（推荐使用）
+models/ablation_dispatcher.py  - 消融实验网络架构
+models/ablation_trainer.py     - 消融实验训练器
+ABLATION_STUDY_GUIDE.md        - 详细指南
+ABLATION_QUICK_START.txt       - 本文件
+
+
+【8】下一步
+────────────────────────────────────────────────────────────────────────────
+1. 运行: python run_ablation_simple.py --episodes 5
+2. 等待完成并查看对比报告
+3. 分析结果，找出最重要的组件
+4. 根据需要调整模型设计
+5. 可选: 运行更多 episodes 获得更稳定的结果
+
+╚════════════════════════════════════════════════════════════════════════════╝
+

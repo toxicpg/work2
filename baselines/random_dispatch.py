@@ -32,12 +32,12 @@ try:
     from config import Config
     from utils.data_process import DataProcessor
     from utils.graph_builder import GraphBuilder
-    from environment_baseline import BaselineEnvironment  # 使用 environment_baseline.py
+    from environment_baseline import BaselineEnvironment  # 使用 environment_baseline.py 进行基准测试
     from evaluate import print_evaluation_results
 except ImportError as e:
     print(f"导入错误: {e}")
     print("请确保 random_dispatch.py 在 baselines 文件夹下，")
-    print("并且 config.py, utils/, models/, environment.py, evaluate.py 等在上一级目录 (work2)。")
+    print("并且 config.py, utils/, models/, environment_baseline.py, evaluate.py 等在上一级目录 (work2)。")
     sys.exit(1)
 # ---------------------------
 
