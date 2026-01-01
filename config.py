@@ -87,16 +87,16 @@ class Config:
     TARGET_UPDATE_FREQ = 1000
 
     EPSILON_START = 0.6
-    EPSILON_END = 0.1
-    EPSILON_DECAY = 0.85
+    EPSILON_END = 0.05  # 优化: 从 0.1 改为 0.05，保留更多探索空间
+    EPSILON_DECAY = 0.95  # 优化: 从 0.85 改为 0.95，更平缓的衰减
 
     REPLAY_BUFFER_SIZE = 50000
     MIN_REPLAY_SIZE = 8000
-    BATCH_SIZE = 256
+    BATCH_SIZE = 128  # 优化: 从 256 减少到 128，提高训练速度和稳定性
 
-    # V5 训练循环配置
-    TRAIN_EVERY_N_TICKS = 1  # 每个Tick都训练，最大化训练频率
-    TRAIN_LOOPS_PER_BATCH = 2  # 每次训练2轮，增加训练密度
+    # V5 训练循环配置 (优化版本 - 参考 TRAINING_ACCELERATION_GUIDE.md)
+    TRAIN_EVERY_N_TICKS = 30  # 优化: 从 1 改为 30 (每 15 分钟训练一次)
+    TRAIN_LOOPS_PER_BATCH = 4  # 优化: 从 2 改为 4 (增加单次训练深度)
 
     # ================== PER配置 ==================
     PER_ALPHA = 0.4
@@ -139,11 +139,18 @@ class Config:
     }
     # (可以选择性地使用缩放因子调整奖励大小)
     REWARD_SCALE_FACTOR = 1.0
+
+    # ================== 多阶段奖励权重 (方案 B) ==================
+    # 匹配奖励: 订单成功匹配时立即给予
+    # 完成奖励: 订单完成时根据总等待时间给予
+    # 取消惩罚: 订单因超时取消时给予惩罚
     REWARD_WEIGHTS = {
-        'W_MATCH': 1.2,
-        'W_WAIT': 1.8,
-        'W_CANCEL': 1.0,
-        'W_WAIT_SCORE': 0.4
+        'W_MATCH': 1.2,        # 匹配奖励基础权重
+        'W_WAIT': 1.8,         # 等待时间惩罚权重
+        'W_CANCEL': 1.0,       # 取消惩罚权重
+        'W_WAIT_SCORE': 0.4,   # 等待时间评分权重
+        'W_COMPLETION': 2.0,   # 订单完成奖励权重 (新增)
+        'W_MATCH_SPEED': 0.5   # 快速匹配奖励权重 (新增)
     }
     # =======================================================================
 

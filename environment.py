@@ -692,6 +692,21 @@ class RideHailingEnvironment:
                     total_wait_time_sec = wait_to_match_sec + wait_for_pickup_sec
                     step_info['waiting_times'].append(total_wait_time_sec)
                     order['total_wait_time_sec'] = total_wait_time_sec
+
+                    # ===== 方案 B: 匹配奖励 =====
+                    # 在匹配时立即给予奖励（基于匹配速度）
+                    try:
+                        w = getattr(self.config, 'REWARD_WEIGHTS', {})
+                        w_match = float(w.get('W_MATCH', 1.2))
+                        w_match_speed = float(w.get('W_MATCH_SPEED', 0.5))
+
+                        # 快速匹配奖励: 等待时间越短，奖励越高
+                        match_speed_score = np.exp(-wait_to_match_sec / self.T0)
+                        match_reward = w_match + w_match_speed * match_speed_score
+                        order['match_reward'] = match_reward
+                    except Exception:
+                        order['match_reward'] = 1.2  # Fallback
+
                     self._schedule_order_completion(match, self.simulation_time)
             # 5. 生成 *本 Tick* 新订单
             new_orders = self._load_orders_for_tick();
@@ -760,6 +775,9 @@ class RideHailingEnvironment:
         return new_orders_for_tick
 
     def _cancel_timeout_orders(self, current_time):
+        """
+        取消超时订单并计算取消惩罚 (方案 B - 取消节点)
+        """
         cancelled_count = 0;
         still_pending = deque()
         try:
@@ -785,8 +803,23 @@ class RideHailingEnvironment:
                         pass  # 转换失败则跳过比较
 
                 if gen_time <= cutoff_time:
-                    order['status'] = 'cancelled'; self.episode_stats[
-                        'total_orders_cancelled'] += 1; cancelled_count += 1
+                    order['status'] = 'cancelled';
+                    self.episode_stats['total_orders_cancelled'] += 1;
+                    cancelled_count += 1
+
+                    # ===== 方案 B: 取消惩罚 =====
+                    # 计算订单已等待时间
+                    try:
+                        wait_time_sec = (current_time - gen_time).total_seconds()
+                        w = getattr(self.config, 'REWARD_WEIGHTS', {})
+                        w_cancel = float(w.get('W_CANCEL', 1.0))
+                        # 取消惩罚: 根据等待时间的长短给予更严重的惩罚
+                        cancel_penalty = -w_cancel * (wait_time_sec / self.config.MAX_WAITING_TIME)
+                    except Exception:
+                        cancel_penalty = -1.0  # Fallback
+
+                    # 记录到订单中（用于后续统计）
+                    order['cancel_penalty'] = cancel_penalty
                 else:
                     still_pending.append(order)
             else:
@@ -997,7 +1030,7 @@ class RideHailingEnvironment:
                         # 4. 构建 (S, A, R, S')
                         (S_t, A_t) = vehicle.pop('pending_dispatch_experience')  # 取出并清除
 
-                        # === V5.2 奖励计算 ===
+                        # ===== 方案 B: 完成奖励 (多阶段奖励) =====
                         total_wait_time_sec = o_data.get('total_wait_time_sec', -1.0)
                         if total_wait_time_sec < 0:
                             # 尝试备用计算
@@ -1018,18 +1051,24 @@ class RideHailingEnvironment:
                             except Exception:
                                 total_wait_time_sec = 300  # Fallback
 
+                        # 计算等待时间评分
                         wait_score = np.exp(-max(0.0, total_wait_time_sec) / self.T0)
                         w = getattr(self.config, 'REWARD_WEIGHTS', None)
                         if isinstance(w, dict):
                             w_match = float(w.get('W_MATCH', 1.0))
                             w_wait = float(w.get('W_WAIT', 1.0))
                             w_wait_score = float(w.get('W_WAIT_SCORE', 0.0))
+                            w_completion = float(w.get('W_COMPLETION', 2.0))  # 完成奖励权重
                         else:
                             w_match = 1.0
                             w_wait = 1.0
                             w_wait_score = 0.0
-                        R_t = (w_match + w_wait_score * wait_score - w_wait * (max(0.0, total_wait_time_sec) / self.T0)) * self.reward_scale
-                        
+                            w_completion = 2.0
+
+                        # 方案 B: 完成奖励 = 基础完成奖励 + 等待时间奖励 - 等待时间惩罚
+                        # R_completion = w_completion + w_wait_score * wait_score - w_wait * (wait_time / T0)
+                        R_t = (w_completion + w_wait_score * wait_score - w_wait * (max(0.0, total_wait_time_sec) / self.T0)) * self.reward_scale
+
                         # 调试输出奖励计算
                         if hasattr(self, '_debug_reward_count'):
                             self._debug_reward_count += 1

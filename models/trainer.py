@@ -71,6 +71,14 @@ class MGCNTrainer:
         self.losses = []
         self.epsilon_history = []
 
+        # ===== 方案 B: 训练曲线记录 =====
+        # 用于绘制训练曲线的指标
+        self.completion_rates = []  # 订单完成率
+        self.avg_waiting_times = []  # 平均等待时间
+        self.match_rates = []  # 订单匹配率
+        self.cancel_rates = []  # 订单取消率
+        # ================================
+
         self.setup_logging()
 
     def setup_logging(self):
@@ -366,6 +374,32 @@ class MGCNTrainer:
         self.total_rewards.append(episode_reward)
         self.losses.append(avg_loss)
 
+        # ===== 方案 B: 记录训练曲线指标 =====
+        try:
+            episode_summary = env.get_episode_summary()
+            reward_metrics = episode_summary.get('reward_metrics', {})
+
+            completion_rate = reward_metrics.get('completion_rate', 0.0)
+            avg_waiting_time = reward_metrics.get('avg_waiting_time', 0.0)
+            match_rate = reward_metrics.get('match_rate', 0.0)
+            cancel_rate = reward_metrics.get('cancel_rate', 0.0)
+
+            self.completion_rates.append(completion_rate)
+            self.avg_waiting_times.append(avg_waiting_time)
+            self.match_rates.append(match_rate)
+            self.cancel_rates.append(cancel_rate)
+
+            # 日志输出
+            self.log_message(
+                f"Episode {episode} Summary: "
+                f"Reward={episode_reward:.2f}, Loss={avg_loss:.6f}, Epsilon={self.epsilon:.4f}, "
+                f"Completion_Rate={completion_rate:.1%}, Avg_Wait={avg_waiting_time:.1f}s, "
+                f"Match_Rate={match_rate:.1%}, Cancel_Rate={cancel_rate:.1%}"
+            )
+        except Exception as e:
+            self.log_message(f"警告: 记录训练曲线指标失败: {e}")
+        # ====================================
+
         return episode_reward, avg_loss
 
     # =============================================================
@@ -413,10 +447,21 @@ class MGCNTrainer:
             raise e
 
     def get_training_stats(self):
-        # (代码不变)
-        return {'total_rewards': self.total_rewards, 'losses': self.losses,
-                'epsilon_history': self.epsilon_history, 'current_epsilon': self.epsilon,
-                'train_steps': self.train_step_count, 'episodes': self.episode_count}
+        # ===== 方案 B: 包含训练曲线指标 =====
+        return {
+            'total_rewards': self.total_rewards,
+            'losses': self.losses,
+            'epsilon_history': self.epsilon_history,
+            'current_epsilon': self.epsilon,
+            'train_steps': self.train_step_count,
+            'episodes': self.episode_count,
+            # 新增训练曲线指标
+            'completion_rates': self.completion_rates,
+            'avg_waiting_times': self.avg_waiting_times,
+            'match_rates': self.match_rates,
+            'cancel_rates': self.cancel_rates
+        }
+        # ====================================
 
     def get_per_stats(self):
         # (代码不变)
