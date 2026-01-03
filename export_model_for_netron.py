@@ -63,8 +63,12 @@ def export_complete_model(output_path='model.pth'):
     print(f"✓ 模型已创建（使用 Dueling DQN 架构）")
 
     # 计算模型参数数量
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total_params = 0
+    trainable_params = 0
+    for p in model.parameters():
+        total_params += p.numel()
+        if p.requires_grad:
+            trainable_params += p.numel()
     print(f"✓ 模型参数数量：")
     print(f"  - 总参数：{total_params:,}")
     print(f"  - 可训练参数：{trainable_params:,}")
