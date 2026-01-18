@@ -7,51 +7,52 @@ import os
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib import cm
-from matplotlib.colors import Normalize
+from PIL import Image
 
 
 def create_grid_image(image_path, output_path=None):
     """
-    创建带网格线的原图
+    创建带网格线的原图 (直接在图像数组上绘制网格)
     """
-    # 加载图片
-    img = plt.imread(image_path)
+    # 1. 加载图片为 NumPy 数组
+    # 使用 PIL 加载以确保数据格式正确
+    pil_img = Image.open(image_path)
+    img = np.array(pil_img)
     height, width = img.shape[0], img.shape[1]
 
-    # 设置网格大小
-    grid_size = (20, 20)
+    # 2. 设置网格大小
+    grid_size = (20, 20) # 20x20 网格
     cell_width = width / grid_size[1]
     cell_height = height / grid_size[0]
 
-    # 创建图形
-    fig, ax = plt.subplots(figsize=(12, 10))
+    # 3. 直接在 NumPy 数组上绘制网格线
+    # 白色网格线的 RGB 值
+    white_color = np.array([255, 255, 255], dtype=np.uint8)
+    # 如果图像有 alpha 通道，也设置 alpha 值
+    if img.shape[2] == 4:
+        white_color = np.array([255, 255, 255, 255], dtype=np.uint8)
 
-    # 显示原图
-    ax.imshow(img)
+    # 绘制垂直线 (列)
+    for i in range(1, grid_size[1]): # 从1开始，避免在最边缘绘制
+        x_pos = int(i * cell_width)
+        # 确保线条在图像范围内
+        img[:, x_pos, :] = white_color
 
-    # 绘制网格线
-    for i in range(grid_size[1] + 1):
-        ax.axvline(i * cell_width, color='white', linewidth=1.0, alpha=0.8)
-    for j in range(grid_size[0] + 1):
-        ax.axhline(j * cell_height, color='white', linewidth=1.0, alpha=0.8)
+    # 绘制水平线 (行)
+    for j in range(1, grid_size[0]): # 从1开始，避免在最边缘绘制
+        y_pos = int(j * cell_height)
+        # 确保线条在图像范围内
+        img[y_pos, :, :] = white_color
 
-    # 不显示坐标轴
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.axis('off')
-
-    # 移除所有边距
-    plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
-
-    # 设置输出路径
+    # 4. 设置输出路径
     if output_path is None:
         base_name = os.path.splitext(os.path.basename(image_path))[0]
         output_path = f"{base_name}_grid.png"
 
-    # 保存结果（完全移除白边）
-    plt.savefig(output_path, bbox_inches='tight', pad_inches=0, dpi=150)
-    plt.close()
+    # 5. 使用 PIL 保存图像 (避免 matplotlib 的 savefig 边距问题)
+    # 将 NumPy 数组转换回 PIL Image 对象
+    output_pil_img = Image.fromarray(img)
+    output_pil_img.save(output_path)
 
     print(f"带网格的图片已保存到: {output_path}")
     return output_path
