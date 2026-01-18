@@ -91,12 +91,15 @@ class Config:
     EPSILON_DECAY = 0.95  # 优化: 从 0.85 改为 0.95，更平缓的衰减
 
     REPLAY_BUFFER_SIZE = 50000
-    MIN_REPLAY_SIZE = 8000
+    MIN_REPLAY_SIZE = 5000  # 优化: 设置为5000，确保足够的经验回放
     BATCH_SIZE = 128  # 优化: 从 256 减少到 128，提高训练速度和稳定性
 
     # V5 训练循环配置 (优化版本 - 参考 TRAINING_ACCELERATION_GUIDE.md)
     TRAIN_EVERY_N_TICKS = 30  # 优化: 从 1 改为 30 (每 15 分钟训练一次)
     TRAIN_LOOPS_PER_BATCH = 4  # 优化: 从 2 改为 4 (增加单次训练深度)
+
+    # 进度显示配置
+    SHOW_PROGRESS_EVERY_N_TICKS = 100  # 每100个tick(50分钟)显示一次进度
 
     # ================== PER配置 ==================
     PER_ALPHA = 0.4

@@ -42,6 +42,19 @@ def run_validation(trainer, data_processor, val_orders, config):
     for day_index in range(num_val_days):
         # 每次重置环境以模拟新的一天
         val_env.reset()
+        # ★ 强制从指定的day开始，避免随机
+        val_env.episode_start_day = day_index
+        val_env.current_day = day_index
+        # 重置时间到指定天
+        if hasattr(val_env.order_generator, 'time_range') and val_env.order_generator.time_range[0] != pd.Timestamp.min:
+            base_time = val_env.order_generator.time_range[0].normalize()
+        else:
+            base_time = pd.Timestamp(config.DATA_START_DATE, tz='Asia/Shanghai').normalize()
+        val_env.simulation_time = base_time + pd.Timedelta(days=day_index)
+        val_env.current_time = val_env.simulation_time
+        val_env.start_time = val_env.simulation_time
+        val_env.current_time_slice = 0
+
         pbar = tqdm(range(config.TICKS_PER_DAY), desc=f"验证中 (Day {day_index+1}/{num_val_days})")
 
         daily_infos = []

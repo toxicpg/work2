@@ -104,7 +104,23 @@ def run_quick_validation(trainer, data_processor, val_orders, config):
         val_env.replay_buffer = None
         val_env.device = config.DEVICE
 
+    # ★ 强制从第0天开始，避免随机到没有数据的时间段
     val_env.reset()
+    val_env.episode_start_day = 0  # 强制从验证集的第一天开始
+    val_env.current_day = 0
+    # 重置时间到第一天
+    if hasattr(val_env.order_generator, 'time_range') and val_env.order_generator.time_range[0] != pd.Timestamp.min:
+        base_time = val_env.order_generator.time_range[0].normalize()
+    else:
+        base_time = pd.Timestamp(config.DATA_START_DATE, tz='Asia/Shanghai').normalize()
+    val_env.simulation_time = base_time
+    val_env.current_time = base_time
+    val_env.start_time = base_time
+    val_env.current_time_slice = 0
+
+    print(f"  ✓ 验证开始时间: {val_env.current_time}")
+    print(f"  ✓ 验证集数据范围: {val_env.order_generator.time_range[0]} 到 {val_env.order_generator.time_range[1]}")
+    print(f"  ✓ 验证集总天数: {val_env.order_generator.get_day_count()}天")
 
     # 只跑500个tick（或者完整一天如果配置的天数少）
     max_val_ticks = min(500, config.MAX_TICKS_PER_EPISODE)
