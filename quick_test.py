@@ -24,6 +24,14 @@ from utils.graph_builder import GraphBuilder
 from environment import RideHailingEnvironment
 from models.trainer import MGCNTrainer
 
+# 导入绘图函数
+try:
+    from plot_training_curves import plot_training_curves, plot_waiting_time_curve
+    PLOTTING_AVAILABLE = True
+except ImportError as e:
+    print(f"警告: 无法导入绘图模块: {e}")
+    PLOTTING_AVAILABLE = False
+
 
 class QuickTestConfig(Config):
     """快速测试配置 - 覆盖默认配置"""
@@ -261,6 +269,36 @@ def main():
         print(f"  ✓ 成功完成 {episode} 个 Episode")
         print(f"  ✓ 日志保存在: {config.LOG_SAVE_PATH}")
         print(f"  ✓ 模型保存在: {config.CHECKPOINT_PATH}")
+
+        # 自动绘制训练曲线
+        if PLOTTING_AVAILABLE and len(trainer.total_rewards) > 0:
+            print("\n" + "="*70)
+            print("📊 开始绘制快速测试训练曲线...")
+            print("="*70)
+            try:
+                # 构建统计数据字典
+                stats_dict = {
+                    'total_rewards': trainer.total_rewards,
+                    'losses': trainer.losses,
+                    'epsilon_history': trainer.epsilon_history,
+                    'completion_rates': trainer.completion_rates,
+                    'avg_waiting_times': trainer.avg_waiting_times,
+                    'match_rates': trainer.match_rates,
+                    'cancel_rates': trainer.cancel_rates
+                }
+
+                # 绘制曲线到单独的目录
+                plot_training_curves(stats_dict, save_dir='results/plots/quick_test/')
+                plot_waiting_time_curve(stats_dict, save_dir='results/plots/quick_test/')
+
+                print("✓ 训练曲线已保存到 results/plots/quick_test/")
+                print("  - training_curves.png")
+                print("  - waiting_time_curve.png")
+            except Exception as e:
+                print(f"⚠ 绘制曲线时出错: {e}")
+                import traceback
+                traceback.print_exc()
+
         print("\n💡 提示:")
         print("  如果看到这条消息，说明快速测试成功!")
         print("  现在可以运行完整训练: python train.py")

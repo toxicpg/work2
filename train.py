@@ -15,6 +15,14 @@ from environment import RideHailingEnvironment
 from models.trainer import MGCNTrainer
 from evaluate import _calculate_daily_metrics
 
+# 导入绘图函数
+try:
+    from plot_training_curves import plot_training_curves, plot_waiting_time_curve, load_training_stats
+    PLOTTING_AVAILABLE = True
+except ImportError as e:
+    print(f"警告: 无法导入绘图模块: {e}")
+    PLOTTING_AVAILABLE = False
+
 def run_validation(trainer, data_processor, val_orders, config):
     print("\n--- 开始验证 ---")
     val_env = RideHailingEnvironment(config, data_processor, val_orders)
@@ -73,6 +81,9 @@ def main():
 
     # 2. 初始化训练器和环境
     trainer = MGCNTrainer(config, neighbor_adj, poi_adj)
+    # 初始化训练所需的额外属性
+    trainer.best_validation_metric = 0.0
+    trainer.early_stopping_counter = 0
     env = RideHailingEnvironment(config, data_processor, train_orders)
 
     # 3. 设置模型与经验池到环境（兼容无 set_model_and_buffer 的版本）
@@ -100,12 +111,12 @@ def main():
                 print(f"发现新的最佳模型！完成率: {val_completion_rate:.4f} > {trainer.best_validation_metric:.4f}")
                 trainer.best_validation_metric = val_completion_rate
                 trainer.early_stopping_counter = 0
-                trainer.save_checkpoint(episode, is_best=True)
+                trainer.save_checkpoint(episode)
             else:
                 trainer.early_stopping_counter += 1
                 print(f"验证性能未提升. 早停计数: {trainer.early_stopping_counter}/{config.EARLY_STOPPING_PATIENCE}")
                 # 即使性能没有提升，也保存当前模型作为普通检查点
-                trainer.save_checkpoint(episode, is_best=False)
+                trainer.save_checkpoint(episode)
 
             if trainer.early_stopping_counter >= config.EARLY_STOPPING_PATIENCE:
                 print("早停触发！连续多个验证周期性能未提升。")
@@ -113,9 +124,41 @@ def main():
         else:
              # 非验证轮次，按频率保存普通模型
              if episode % config.SAVE_FREQ == 0:
-                trainer.save_checkpoint(episode, is_best=False)
+                trainer.save_checkpoint(episode)
 
     print("--- 训练结束 ---")
+
+    # 自动绘制训练曲线
+    if PLOTTING_AVAILABLE:
+        print("\n" + "="*70)
+        print("📊 开始绘制训练曲线...")
+        print("="*70)
+        try:
+            # 构建统计数据字典
+            stats_dict = {
+                'total_rewards': trainer.total_rewards,
+                'losses': trainer.losses,
+                'epsilon_history': trainer.epsilon_history,
+                'completion_rates': trainer.completion_rates,
+                'avg_waiting_times': trainer.avg_waiting_times,
+                'match_rates': trainer.match_rates,
+                'cancel_rates': trainer.cancel_rates
+            }
+
+            # 绘制曲线
+            plot_training_curves(stats_dict)
+            plot_waiting_time_curve(stats_dict)
+
+            print("✓ 训练曲线已保存到 results/plots/")
+            print("  - training_curves.png")
+            print("  - waiting_time_curve.png")
+        except Exception as e:
+            print(f"⚠ 绘制曲线时出错: {e}")
+            import traceback
+            traceback.print_exc()
+    else:
+        print("\n⚠ 跳过绘图（绘图模块不可用）")
+        print("  提示: 训练完成后可以手动运行: python plot_training_curves.py")
 
 if __name__ == '__main__':
     main()
