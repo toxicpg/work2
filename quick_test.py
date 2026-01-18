@@ -47,7 +47,10 @@ class QuickTestConfig(Config):
         self.TRAIN_EVERY_N_TICKS = 50  # 每50个tick训练一次(原来可能是100+)
         self.TARGET_UPDATE_FREQ = 50  # 更频繁更新target网络
         self.VALIDATION_INTERVAL = 1  # 每个episode都验证
-        self.SAVE_FREQ = 1  # 每个episode都保存
+        self.SAVE_FREQ = 999  # 不频繁保存，加快速度（只在验证时保存）
+
+        # ========== 进度显示 ==========
+        self.SHOW_PROGRESS_EVERY_N_TICKS = 100  # 每100个tick显示一次进度
 
         # ========== 禁用早停(测试用) ==========
         self.EARLY_STOPPING_PATIENCE = 999  # 禁用早停
@@ -167,6 +170,9 @@ def main():
         # 6. 快速训练循环
         print(f"\n[步骤 6/6] 开始快速训练...")
         print("="*70)
+        print(f"💡 提示: Replay Buffer 需要先收集 {config.MIN_REPLAY_SIZE} 条经验才会开始训练")
+        print(f"         在此之前可能看起来\"卡住\"，但实际上正在收集数据")
+        print("="*70)
 
         for episode in range(1, config.NUM_EPISODES + 1):
             print(f"\n{'='*70}")
@@ -174,8 +180,18 @@ def main():
             print(f"{'='*70}")
 
             try:
+                # 在训练前检查 buffer 大小
+                buffer_size_before = len(trainer.replay_buffer)
+                print(f"⏳ 当前 Replay Buffer 大小: {buffer_size_before}/{config.MIN_REPLAY_SIZE}")
+                if buffer_size_before < config.MIN_REPLAY_SIZE:
+                    print(f"   还需收集 {config.MIN_REPLAY_SIZE - buffer_size_before} 条经验才开始训练...")
+
                 # 训练一个episode
                 reward, loss = trainer.train_episode(env, episode)
+
+                # 训练后再次检查
+                buffer_size_after = len(trainer.replay_buffer)
+                print(f"✓ Episode 结束后 Buffer 大小: {buffer_size_after}")
 
                 print(f"\n✓ Episode {episode} 完成:")
                 print(f"  总奖励: {reward:.2f}")

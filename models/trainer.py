@@ -324,6 +324,9 @@ class MGCNTrainer:
         self.episode_count = episode
 
         # 3. (V5) 开始 10 秒 Tick 循环
+        # 进度显示配置
+        show_progress_interval = getattr(self.config, 'SHOW_PROGRESS_EVERY_N_TICKS', 200)
+
         while not done and tick_count < self.config.MAX_TICKS_PER_EPISODE:
 
             # --- 3a. (V5) 与环境交互 (执行 10 秒的 Tick) ---
@@ -350,7 +353,22 @@ class MGCNTrainer:
                         episode_loss += loss
                         actual_train_steps += 1
 
-            # --- 3d. 状态转移 ---
+            # --- 3d. 显示进度（每N个tick） ---
+            if tick_count > 0 and tick_count % show_progress_interval == 0:
+                buffer_size = len(self.replay_buffer)
+                progress_pct = (tick_count / self.config.MAX_TICKS_PER_EPISODE) * 100
+                if buffer_size < self.config.MIN_REPLAY_SIZE:
+                    print(f"  📊 Tick {tick_count}/{self.config.MAX_TICKS_PER_EPISODE} ({progress_pct:.1f}%) | "
+                          f"Buffer: {buffer_size}/{self.config.MIN_REPLAY_SIZE} | "
+                          f"⏳ 收集经验中...")
+                else:
+                    avg_loss_so_far = episode_loss / max(1, actual_train_steps)
+                    print(f"  📊 Tick {tick_count}/{self.config.MAX_TICKS_PER_EPISODE} ({progress_pct:.1f}%) | "
+                          f"Buffer: {buffer_size} | "
+                          f"训练步数: {actual_train_steps} | "
+                          f"平均Loss: {avg_loss_so_far:.4f}")
+
+            # --- 3e. 状态转移 ---
             state = next_state  # S_t 变为 S_{t+1}
             tick_count += 1
 

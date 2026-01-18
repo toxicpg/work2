@@ -210,17 +210,29 @@ def create_average_waiting_time_bar_chart():
     return 'average_waiting_time.png'
 
 
-def create_ablation_matching_rate_plot():
+def create_ablation_matching_rate_plot(ours=None, cnn_d3qn=None, gcn_poi=None, gcn_adj=None, dates=None):
     """
     创建消融实验匹配率对比折线图
-    """
-    # 数据
-    dates = ['11.24', '11.25', '11.26', '11.27', '11.28', '11.29', '11.30']
 
-    ours = [92.32, 93.20, 93.13, 93.24, 92.12, 93.67, 92.12]
-    cnn_d3qn = [89.13, 90.57, 90.80, 91.12, 90.31, 91.69, 89.35]
-    gcn_poi = [87.45, 89.34, 88.87, 90.35, 89.57, 91.27, 88.46]
-    gcn_adj = [90.65, 89.11, 91.56, 90.77, 91.01, 90.34, 90.97]
+    参数:
+        ours: Ours算法的匹配率列表
+        cnn_d3qn: CNN-D3QN的匹配率列表
+        gcn_poi: GCN(POI)的匹配率列表
+        gcn_adj: GCN(ADJ)的匹配率列表
+        dates: 日期标签列表
+    """
+    # 默认数据（示例，需要替换为真实实验数据）
+    if dates is None:
+        dates = ['11.24', '11.25', '11.26', '11.27', '11.28', '11.29', '11.30']
+
+    if ours is None:
+        ours = [0] * len(dates)  # 待填充真实数据
+    if cnn_d3qn is None:
+        cnn_d3qn = [0] * len(dates)  # 待填充真实数据
+    if gcn_poi is None:
+        gcn_poi = [0] * len(dates)  # 待填充真实数据
+    if gcn_adj is None:
+        gcn_adj = [0] * len(dates)  # 待填充真实数据
 
     # 创建图形
     plt.figure(figsize=(12, 8))
@@ -259,17 +271,29 @@ def create_ablation_matching_rate_plot():
     return output_path
 
 
-def create_ablation_waiting_time_plot():
+def create_ablation_waiting_time_plot(ours=None, cnn_d3qn=None, gcn_poi=None, gcn_adj=None, dates=None):
     """
     创建消融实验等待时间对比折线图
-    """
-    # 数据
-    dates = ['11.24', '11.25', '11.26', '11.27', '11.28', '11.29', '11.30']
 
-    ours = [242.32, 233.20, 228.13, 223.24, 212.12, 213.67, 217.12]
-    cnn_d3qn = [254.23, 255.12, 241.24, 232.45, 222.23, 236.14, 237.22]
-    gcn_poi = [264.12, 264.56, 245.36, 254.56, 244.78, 233.56, 247.46]
-    gcn_adj = [251.34, 249.35, 232.46, 233.45, 223.46, 231.34, 226.13]
+    参数:
+        ours: Ours算法的等待时间列表
+        cnn_d3qn: CNN-D3QN的等待时间列表
+        gcn_poi: GCN(POI)的等待时间列表
+        gcn_adj: GCN(ADJ)的等待时间列表
+        dates: 日期标签列表
+    """
+    # 默认数据（示例，需要替换为真实实验数据）
+    if dates is None:
+        dates = ['11.24', '11.25', '11.26', '11.27', '11.28', '11.29', '11.30']
+
+    if ours is None:
+        ours = [0] * len(dates)  # 待填充真实数据
+    if cnn_d3qn is None:
+        cnn_d3qn = [0] * len(dates)  # 待填充真实数据
+    if gcn_poi is None:
+        gcn_poi = [0] * len(dates)  # 待填充真实数据
+    if gcn_adj is None:
+        gcn_adj = [0] * len(dates)  # 待填充真实数据
 
     # 创建图形
     plt.figure(figsize=(12, 8))
