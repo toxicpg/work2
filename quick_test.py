@@ -9,12 +9,11 @@
 4. 频繁保存以测试保存逻辑
 """
 
-import sys
 import os
-import torch
-import numpy as np
+import sys
+
 import pandas as pd
-from datetime import datetime
+import torch
 from tqdm import tqdm
 
 sys.path.append(os.getcwd())
@@ -24,7 +23,6 @@ from utils.data_process import DataProcessor
 from utils.graph_builder import GraphBuilder
 from environment import RideHailingEnvironment
 from models.trainer import MGCNTrainer
-from evaluate import _calculate_daily_metrics
 
 
 class QuickTestConfig(Config):
@@ -85,6 +83,11 @@ def run_quick_validation(trainer, data_processor, val_orders, config):
     """快速验证 - 只跑1天，只跑500个tick"""
     print("\n--- 快速验证 (只跑500 ticks) ---")
 
+    # 检查验证数据
+    if len(val_orders) == 0:
+        print("⚠ 警告: 验证集为空！")
+        return 0.0
+
     val_env = RideHailingEnvironment(config, data_processor, val_orders)
     if hasattr(val_env, 'set_model_and_buffer'):
         val_env.set_model_and_buffer(trainer.main_net, None, config.DEVICE)
@@ -95,13 +98,20 @@ def run_quick_validation(trainer, data_processor, val_orders, config):
 
     val_env.reset()
 
-    # 只跑500个tick
-    max_val_ticks = min(500, config.TICKS_PER_DAY)
+    # 只跑500个tick（或者完整一天如果配置的天数少）
+    max_val_ticks = min(500, config.MAX_TICKS_PER_EPISODE)
     daily_infos = []
 
     for tick in tqdm(range(max_val_ticks), desc="快速验证"):
         _, _, _, info = val_env.step(current_epsilon=0.0)
-        daily_infos.append(info.get('step_info', {}))
+        step_info = info.get('step_info', {})
+        daily_infos.append(step_info)
+
+        # 每100个tick输出一次进度（调试用）
+        if tick > 0 and tick % 100 == 0:
+            temp_total = sum(s.get('orders_generated', 0) for s in daily_infos)
+            temp_matched = sum(s.get('orders_matched', 0) for s in daily_infos)
+            print(f"  Tick {tick}: 已生成 {temp_total} 订单, 已匹配 {temp_matched} 订单")
 
     # 计算简单指标
     total_orders = sum(info.get('orders_generated', 0) for info in daily_infos)
@@ -109,6 +119,14 @@ def run_quick_validation(trainer, data_processor, val_orders, config):
     match_rate = matched_orders / total_orders if total_orders > 0 else 0.0
 
     print(f"--- 快速验证完成: 匹配率 = {match_rate:.4f} ({matched_orders}/{total_orders}) ---")
+
+    # 如果匹配率为0，输出更多调试信息
+    if match_rate == 0.0 and total_orders == 0:
+        print("⚠ 警告: 验证期间没有生成订单！")
+        print(f"  验证集订单数: {len(val_orders)}")
+        print(f"  验证tick数: {max_val_ticks}")
+        print(f"  建议: 增加验证tick数或检查验证数据时间范围")
+
     return match_rate
 
 
@@ -152,6 +170,7 @@ def main():
         # 4. 初始化训练器
         print(f"\n[步骤 4/6] 初始化模型...")
         trainer = MGCNTrainer(config, neighbor_adj, poi_adj)
+        trainer.best_validation_metric = 0.0  # 初始化最佳验证指标
         print(f"  ✓ 模型已初始化")
         print(f"  ✓ 模型参数量: {sum(p.numel() for p in trainer.main_net.parameters()):,}")
 
@@ -207,19 +226,26 @@ def main():
                         if val_match_rate > trainer.best_validation_metric:
                             print(f"✓ 发现更好的模型！匹配率: {val_match_rate:.4f}")
                             trainer.best_validation_metric = val_match_rate
-                            trainer.save_checkpoint(episode, is_best=True)
+                            # 只在配置允许时保存模型
+                            if episode % config.SAVE_FREQ == 0:
+                                trainer.save_checkpoint(episode)
+                                print(f"  ✓ 已保存最佳模型 (Episode {episode})")
                         else:
                             print(f"  当前匹配率: {val_match_rate:.4f} (最佳: {trainer.best_validation_metric:.4f})")
-                            trainer.save_checkpoint(episode, is_best=False)
+                            # 定期保存
+                            if episode % config.SAVE_FREQ == 0:
+                                trainer.save_checkpoint(episode)
+                                print(f"  ✓ 已保存检查点 (Episode {episode})")
                     except Exception as e:
                         print(f"⚠ 验证过程出错 (非致命): {e}")
+                        import traceback
+                        traceback.print_exc()
                         # 即使验证失败，也尝试保存模型
-                        try:
-                            trainer.save_checkpoint(episode, is_best=False)
-                        except Exception as save_err:
-                            print(f"❌ 保存模型失败: {save_err}")
-                            import traceback
-                            traceback.print_exc()
+                        if episode % config.SAVE_FREQ == 0:
+                            try:
+                                trainer.save_checkpoint(episode)
+                            except Exception as save_err:
+                                print(f"❌ 保存模型失败: {save_err}")
 
             except Exception as e:
                 print(f"\n❌ Episode {episode} 训练出错:")
