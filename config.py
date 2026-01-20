@@ -81,10 +81,10 @@ class Config:
         print("=" * 70)
 
     # ================== 训练配置 ==================
-    LEARNING_RATE = 1e-4
-    WEIGHT_DECAY = 1e-5
-    GAMMA = 0.99
-    TARGET_UPDATE_FREQ = 1000
+    LEARNING_RATE = 5e-5  # 降低学习率，防止Q值发散
+    WEIGHT_DECAY = 5e-5  # 增加正则化，防止过拟合
+    GAMMA = 0.97  # 降低折扣因子，减少长期回报积累
+    TARGET_UPDATE_FREQ = 500  # 更频繁更新目标网络，提高稳定性
 
     EPSILON_START = 0.6
     EPSILON_END = 0.05  # 优化: 从 0.1 改为 0.05，保留更多探索空间
@@ -110,7 +110,7 @@ class Config:
     NUM_EPISODES = 50
     TRAIN_RATIO = 0.70
     VAL_RATIO = 0.15
-    VALIDATION_INTERVAL = 10
+    VALIDATION_INTERVAL = 2  # 每2个episode验证，及时捕捉最佳模型
     VAL_EPISODES = 2
     TEST_EPISODES = 1
     SAVE_FREQ = 4
@@ -118,7 +118,7 @@ class Config:
     MODEL_SAVE_PATH = 'results/models/'
     LOG_SAVE_PATH = 'results/logs/'
 
-    EARLY_STOPPING_PATIENCE = 5
+    EARLY_STOPPING_PATIENCE = 3  # 连续3次(6个episode)未提升则停止
     RAW_DATA_PATH = 'data/raw/'
     ORDER_FILE = 'orders.csv'
     NEIGHBOR_ADJ_FILE = 'neighbor_adj.pt'

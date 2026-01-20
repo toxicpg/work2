@@ -262,14 +262,15 @@ class MGCNTrainer:
             elementwise_loss = F.mse_loss(current_q_values.squeeze(), target_q_values, reduction='none')
             loss = (weights * elementwise_loss).mean()
             
-            # 调试输出
-            if self.train_step_count % 100 == 0:  # 每100步输出一次
+            # 调试输出 - 更频繁记录以诊断Loss上升问题
+            if self.train_step_count % 50 == 0:  # 每50步输出一次（加倍频率）
                 self.log_message(f"DEBUG - Step {self.train_step_count}:")
-                self.log_message(f"  Current Q values range: [{current_q_values.min().item():.4f}, {current_q_values.max().item():.4f}]")
-                self.log_message(f"  Target Q values range: [{target_q_values.min().item():.4f}, {target_q_values.max().item():.4f}]")
-                self.log_message(f"  Rewards range: [{rewards.min().item():.4f}, {rewards.max().item():.4f}]")
-                self.log_message(f"  TD errors range: [{td_errors.min().item():.4f}, {td_errors.max().item():.4f}]")
+                self.log_message(f"  Current Q values: mean={current_q_values.mean().item():.4f}, range=[{current_q_values.min().item():.4f}, {current_q_values.max().item():.4f}]")
+                self.log_message(f"  Target Q values: mean={target_q_values.mean().item():.4f}, range=[{target_q_values.min().item():.4f}, {target_q_values.max().item():.4f}]")
+                self.log_message(f"  Rewards: mean={rewards.mean().item():.4f}, range=[{rewards.min().item():.4f}, {rewards.max().item():.4f}]")
+                self.log_message(f"  TD errors: mean={td_errors.mean().item():.4f}, max={td_errors.max().item():.4f}")
                 self.log_message(f"  Loss: {loss.item():.6f}")
+                self.log_message(f"  Learning rate: {self.optimizer.param_groups[0]['lr']:.6f}")
                 self.log_message(f"  Replay buffer size: {len(self.replay_buffer)}")
 
             # --- 反向传播 ---
