@@ -3,6 +3,10 @@
 用于绘制强化学习训练过程中的关键指标曲线
 """
 
+import os
+# 解决 OpenMP 库冲突问题
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+
 import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path

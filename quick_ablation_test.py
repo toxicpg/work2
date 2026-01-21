@@ -11,6 +11,10 @@
 
 import sys
 import os
+
+# 解决 OpenMP 库冲突问题
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+
 import torch
 import numpy as np
 import pandas as pd

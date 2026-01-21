@@ -6,12 +6,15 @@
     python plot_ablation_results.py results/ablation_studies/ablation_results_20260101_120000.json
 """
 
+import os
+import sys
+# 解决 OpenMP 库冲突问题
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+
 import json
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
-import sys
-import os
 from pathlib import Path
 
 # 设置中文字体支持

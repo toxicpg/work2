@@ -42,7 +42,7 @@ class Config:
     # 融合网络配置
     FUSION_HIDDEN_DIM = 128
     FINAL_HIDDEN_DIM = 64
-    DROPOUT_RATE = 0.2
+    DROPOUT_RATE = 0.3  # 增加 Dropout 防止过拟合
 
     # 输出配置
     PROCESSED_DATA_PATH = 'data/processed/'
@@ -81,10 +81,10 @@ class Config:
         print("=" * 70)
 
     # ================== 训练配置 ==================
-    LEARNING_RATE = 5e-5  # 降低学习率，防止Q值发散
-    WEIGHT_DECAY = 5e-5  # 增加正则化，防止过拟合
-    GAMMA = 0.97  # 降低折扣因子，减少长期回报积累
-    TARGET_UPDATE_FREQ = 500  # 更频繁更新目标网络，提高稳定性
+    LEARNING_RATE = 3e-5  # 进一步降低学习率，防止过快过拟合
+    WEIGHT_DECAY = 1e-4  # 进一步增加正则化，更强的防过拟合
+    GAMMA = 0.95  # 进一步降低折扣因子，减少Q值积累
+    TARGET_UPDATE_FREQ = 300  # 更频繁更新目标网络，提高稳定性
 
     EPSILON_START = 0.6
     EPSILON_END = 0.05  # 优化: 从 0.1 改为 0.05，保留更多探索空间
