@@ -15,13 +15,13 @@ class Config:
     DATA_END_DATE = '2016-11-29 23:59:59' # 确保包含最后一天的数据
     # ... (LAT_RANGE, LON_RANGE 不变) ...
 
-    # ================== 模拟器时间配置 (V5.2) ==================
+    # ================== 模拟器时间配置 (V5.2 - 优化版) ==================
     # (NUM_TIME_SLICES 用于 data_process.py 计算时间特征)
     NUM_TIME_SLICES = (24 * 60) // MACRO_STATISTICS_STEP_MINUTES # 每天 144 个宏观时间片
-    TICK_DURATION_SEC = 30  # 模拟器的“心跳”间隔 (10秒)
-    TICKS_PER_DAY = (24 * 60 * 60) // TICK_DURATION_SEC  # 每天 8640 个 Ticks
+    TICK_DURATION_SEC = 60  # 模拟器的"心跳"间隔 (60秒 = 1分钟，加快2倍)
+    TICKS_PER_DAY = (24 * 60 * 60) // TICK_DURATION_SEC  # 每天 1440 个 Ticks
 
-    EPISODE_DAYS = 2
+    EPISODE_DAYS = 1  # 优化: 从2天改为1天，再加快2倍
     MAX_TICKS_PER_EPISODE = EPISODE_DAYS * TICKS_PER_DAY  # 每个 Episode 的最大 Ticks 数
 
     MAX_START_DAY = None  # 将在 OrderGenerator 中动态设置
@@ -42,7 +42,8 @@ class Config:
     # 融合网络配置
     FUSION_HIDDEN_DIM = 128
     FINAL_HIDDEN_DIM = 64
-    DROPOUT_RATE = 0.3  # 增加 Dropout 防止过拟合
+    DROPOUT_RATE = 0.5  # 大幅增加 Dropout 防止过拟合
+    USE_BATCH_NORM = True  # 添加 Batch Normalization 提高稳定性
 
     # 输出配置
     PROCESSED_DATA_PATH = 'data/processed/'
@@ -81,25 +82,26 @@ class Config:
         print("=" * 70)
 
     # ================== 训练配置 ==================
-    LEARNING_RATE = 3e-5  # 进一步降低学习率，防止过快过拟合
-    WEIGHT_DECAY = 1e-4  # 进一步增加正则化，更强的防过拟合
-    GAMMA = 0.95  # 进一步降低折扣因子，减少Q值积累
-    TARGET_UPDATE_FREQ = 300  # 更频繁更新目标网络，提高稳定性
+    LEARNING_RATE = 1e-5  # 进一步降低学习率，防止过快过拟合
+    WEIGHT_DECAY = 5e-4  # 大幅增加正则化，更强的防过拟合
+    GAMMA = 0.92  # 进一步降低折扣因子，减少Q值积累
+    TARGET_UPDATE_FREQ = 200  # 更频繁更新目标网络，提高稳定性
+    GRAD_CLIP_NORM = 1.0  # 梯度裁剪，防止梯度爆炸
 
     EPSILON_START = 0.6
     EPSILON_END = 0.05  # 优化: 从 0.1 改为 0.05，保留更多探索空间
     EPSILON_DECAY = 0.95  # 优化: 从 0.85 改为 0.95，更平缓的衰减
 
-    REPLAY_BUFFER_SIZE = 50000
-    MIN_REPLAY_SIZE = 5000  # 优化: 设置为5000，确保足够的经验回放
-    BATCH_SIZE = 128  # 优化: 从 256 减少到 128，提高训练速度和稳定性
+    REPLAY_BUFFER_SIZE = 30000  # 优化: 从50000减少到30000，加快训练
+    MIN_REPLAY_SIZE = 2000  # 优化: 从5000降到2000，更快开始训练
+    BATCH_SIZE = 256  # 优化: 从128增加到256，充分利用GPU，加快训练
 
     # V5 训练循环配置 (优化版本 - 参考 TRAINING_ACCELERATION_GUIDE.md)
-    TRAIN_EVERY_N_TICKS = 30  # 优化: 从 1 改为 30 (每 15 分钟训练一次)
-    TRAIN_LOOPS_PER_BATCH = 4  # 优化: 从 2 改为 4 (增加单次训练深度)
+    TRAIN_EVERY_N_TICKS = 10  # 优化: 从 30 改为 10 (配合60秒tick，每10分钟训练一次)
+    TRAIN_LOOPS_PER_BATCH = 8  # 优化: 从 4 改为 8 (增加单次训练深度，补偿训练频率降低)
 
     # 进度显示配置
-    SHOW_PROGRESS_EVERY_N_TICKS = 100  # 每100个tick(50分钟)显示一次进度
+    SHOW_PROGRESS_EVERY_N_TICKS = 50  # 每50个tick(50分钟)显示一次进度
 
     # ================== PER配置 ==================
     PER_ALPHA = 0.4
@@ -110,7 +112,7 @@ class Config:
     NUM_EPISODES = 50
     TRAIN_RATIO = 0.70
     VAL_RATIO = 0.15
-    VALIDATION_INTERVAL = 2  # 每2个episode验证，及时捕捉最佳模型
+    VALIDATION_INTERVAL = 1  # 每1个episode验证，更及时发现过拟合
     VAL_EPISODES = 2
     TEST_EPISODES = 1
     SAVE_FREQ = 4
@@ -118,14 +120,14 @@ class Config:
     MODEL_SAVE_PATH = 'results/models/'
     LOG_SAVE_PATH = 'results/logs/'
 
-    EARLY_STOPPING_PATIENCE = 3  # 连续3次(6个episode)未提升则停止
+    EARLY_STOPPING_PATIENCE = 5  # 增加patience，给模型更多收敛机会
     RAW_DATA_PATH = 'data/raw/'
     ORDER_FILE = 'orders.csv'
     NEIGHBOR_ADJ_FILE = 'neighbor_adj.pt'
     POI_ADJ_FILE = 'poi_adj.pt'
 
     # ================== 仿真配置 ==================
-    TOTAL_VEHICLES = 10000  # 增加到10000辆，车辆/订单比约3%
+    TOTAL_VEHICLES = 2200  # 基于峰值并发订单数2760，设置为2200（约0.8倍，更有挑战性）
     IDLE_THRESHOLD_SEC = 120
     AVG_SPEED_KMH = 40
     MAX_WAITING_TIME = 300  # 订单等待 600 秒 (10分钟) 后取消
@@ -135,25 +137,33 @@ class Config:
     MATCHER_EUCLIDEAN_WEIGHT = 0.1
 
 
-    # ================== 奖励函数配置 (V5.2 - Wait Time Score) ==================
+    # ================== 奖励函数配置 (V5.3 - 优化版) ==================
+    # 核心改进:
+    # 1. 缩短T0使奖励信号更明显
+    # 2. 平衡各项权重,避免某一项主导
+    # 3. 增强等待时间的重要性
     REWARD_FORMULA_V4 = {
-        # 'ALPHA': 0.5, # (V5.2 中 ALPHA 不再直接使用)
-        'T_CHARACTERISTIC': 240.0
+        'T_CHARACTERISTIC': 180.0  # 从240降到180,使exp函数变化更明显
     }
     # (可以选择性地使用缩放因子调整奖励大小)
     REWARD_SCALE_FACTOR = 1.0
 
-    # ================== 多阶段奖励权重 (方案 B) ==================
+    # ================== 多阶段奖励权重 (方案 B - 优化版) ==================
     # 匹配奖励: 订单成功匹配时立即给予
     # 完成奖励: 订单完成时根据总等待时间给予
     # 取消惩罚: 订单因超时取消时给予惩罚
+    #
+    # 优化原则:
+    # 1. 降低completion基础权重,避免"只要完成就好"的策略
+    # 2. 提高wait相关权重,让模型更关注等待时间
+    # 3. 增加wait_score权重,奖励快速服务
     REWARD_WEIGHTS = {
-        'W_MATCH': 1.2,        # 匹配奖励基础权重
-        'W_WAIT': 1.8,         # 等待时间惩罚权重
-        'W_CANCEL': 1.0,       # 取消惩罚权重
-        'W_WAIT_SCORE': 0.4,   # 等待时间评分权重
-        'W_COMPLETION': 2.0,   # 订单完成奖励权重 (新增)
-        'W_MATCH_SPEED': 0.5   # 快速匹配奖励权重 (新增)
+        'W_MATCH': 0.8,        # 匹配奖励基础权重 (降低,避免过度重视匹配)
+        'W_WAIT': 3.0,         # 等待时间惩罚权重 (大幅提升,强化时间敏感性)
+        'W_CANCEL': 2.5,       # 取消惩罚权重 (提高,避免让订单超时)
+        'W_WAIT_SCORE': 1.5,   # 等待时间评分权重 (提高,奖励快速服务)
+        'W_COMPLETION': 1.0,   # 订单完成奖励权重 (降低,避免主导策略)
+        'W_MATCH_SPEED': 0.8   # 快速匹配奖励权重 (稍降,平衡各项)
     }
     # =======================================================================
 

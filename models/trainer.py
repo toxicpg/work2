@@ -276,7 +276,9 @@ class MGCNTrainer:
             # --- 反向传播 ---
             self.optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.main_net.parameters(), max_norm=1.0)
+            # 使用config中的梯度裁剪值
+            grad_clip_norm = getattr(self.config, 'GRAD_CLIP_NORM', 1.0)
+            torch.nn.utils.clip_grad_norm_(self.main_net.parameters(), max_norm=grad_clip_norm)
             self.optimizer.step()
             try:
                 self.scheduler.step()
