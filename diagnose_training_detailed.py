@@ -28,21 +28,28 @@ print("\n" + "="*70)
 print("详细数据诊断报告 - 按小时分析")
 print("="*70)
 
-# 分析每小时订单数
+# 分析每小时订单数 - 按天平均
+train_orders['date'] = train_orders['timestamp'].dt.date
 train_orders['hour'] = train_orders['timestamp'].dt.hour
-hourly_counts = train_orders.groupby('hour').size()
 
-print(f"\n每小时平均订单数分布:")
-print(f"  最少的小时: {hourly_counts.min()} 订单 (小时 {hourly_counts.idxmin()})")
-print(f"  最多的小时: {hourly_counts.max()} 订单 (小时 {hourly_counts.idxmax()})")
-print(f"  平均每小时: {hourly_counts.mean():.0f} 订单")
+# 计算每天每小时的订单数，然后取平均
+daily_hourly = train_orders.groupby(['date', 'hour']).size().reset_index(name='count')
+avg_hourly_counts = daily_hourly.groupby('hour')['count'].mean()
+max_hourly_counts = daily_hourly.groupby('hour')['count'].max()
+min_hourly_counts = daily_hourly.groupby('hour')['count'].min()
 
-# 打印每小时详细分布
-print(f"\n每小时订单数详细:")
+print(f"\n单天每小时平均订单数分布:")
+print(f"  平均最少的小时: {avg_hourly_counts.min():.0f} 订单 (小时 {avg_hourly_counts.idxmin()})")
+print(f"  平均最多的小时: {avg_hourly_counts.max():.0f} 订单 (小时 {avg_hourly_counts.idxmax()})")
+print(f"  全天平均: {avg_hourly_counts.mean():.0f} 订单/小时")
+
+# 打印每小时详细分布（单天平均）
+print(f"\n每小时订单数详细 (单天平均):")
 for hour in range(24):
-    count = hourly_counts.get(hour, 0)
-    bar = '█' * int(count / 5000)
-    print(f"  {hour:02d}:00 - {count:6d} 订单 {bar}")
+    avg_count = avg_hourly_counts.get(hour, 0)
+    max_count = max_hourly_counts.get(hour, 0)
+    bar = '█' * int(avg_count / 500)
+    print(f"  {hour:02d}:00 - 平均{avg_count:6.0f} (最高{max_count:6.0f}) {bar}")
 
 # 估算同时在线订单数
 # 假设平均订单时长（从下单到完成）
@@ -52,13 +59,13 @@ print(f"\n" + "="*70)
 print(f"并发订单估算 (假设平均订单时长 {AVG_ORDER_DURATION_MINUTES} 分钟)")
 print("="*70)
 
-# 计算峰值小时的并发订单数
-peak_hour = hourly_counts.idxmax()
-peak_hourly_orders = hourly_counts.max()
+# 计算峰值小时的并发订单数（基于单天平均）
+peak_hour = avg_hourly_counts.idxmax()
+peak_hourly_orders = avg_hourly_counts.max()
 # 并发数 = 每小时订单数 * (订单时长/60分钟)
 peak_concurrent_orders = peak_hourly_orders * (AVG_ORDER_DURATION_MINUTES / 60)
 
-avg_hourly_orders = hourly_counts.mean()
+avg_hourly_orders = avg_hourly_counts.mean()
 avg_concurrent_orders = avg_hourly_orders * (AVG_ORDER_DURATION_MINUTES / 60)
 
 print(f"\n峰值时段 ({peak_hour}:00):")
@@ -104,31 +111,36 @@ elif config.TOTAL_VEHICLES > recommended_max:
 else:
     print(f"  ✅ 配置合理")
 
-# 实际验证：分析10分钟时间窗口
+# 实际验证：分析10分钟时间窗口（单天平均）
 print(f"\n" + "="*70)
-print("10分钟时间窗口分析 (模拟器实际运行场景)")
+print("10分钟时间窗口分析 (模拟器实际运行场景 - 单天平均)")
 print("="*70)
 
 train_orders['time_window'] = (train_orders['timestamp'].dt.hour * 60 +
                                 train_orders['timestamp'].dt.minute) // 10
 
-window_counts = train_orders.groupby('time_window').size()
-print(f"\n每10分钟订单数:")
-print(f"  最少: {window_counts.min()} 订单")
-print(f"  最多: {window_counts.max()} 订单")
-print(f"  平均: {window_counts.mean():.0f} 订单")
-print(f"  峰值10分钟: {window_counts.max()} 订单")
+# 按天和时间窗口分组，然后取平均
+daily_window = train_orders.groupby(['date', 'time_window']).size().reset_index(name='count')
+avg_window_counts = daily_window.groupby('time_window')['count'].mean()
+max_window_counts = daily_window.groupby('time_window')['count'].max()
 
-# 10分钟窗口内的车辆需求
+print(f"\n每10分钟订单数 (单天平均):")
+print(f"  平均最少: {avg_window_counts.min():.0f} 订单")
+print(f"  平均最多: {avg_window_counts.max():.0f} 订单")
+print(f"  全天平均: {avg_window_counts.mean():.0f} 订单")
+print(f"  历史峰值: {max_window_counts.max():.0f} 订单")
+
+# 10分钟窗口内的车辆需求（基于平均值）
+peak_10min = avg_window_counts.max()
 print(f"\n基于10分钟窗口的车辆需求:")
-print(f"  峰值10分钟订单数: {window_counts.max()}")
-print(f"  如果这些订单都需要车 (最坏情况): {window_counts.max()} 辆")
-print(f"  考虑订单时长15分钟 (重叠1.5x): {window_counts.max() * 1.5:.0f} 辆")
+print(f"  平均峰值10分钟订单数: {peak_10min:.0f}")
+print(f"  如果这些订单都需要车 (最坏情况): {peak_10min:.0f} 辆")
+print(f"  考虑订单时长15分钟 (重叠1.5x): {peak_10min * 1.5:.0f} 辆")
 print(f"  当前车辆数: {config.TOTAL_VEHICLES:,}")
 
-if config.TOTAL_VEHICLES < window_counts.max():
+if config.TOTAL_VEHICLES < peak_10min:
     print(f"  ❌ 不足以应对峰值10分钟！")
-elif config.TOTAL_VEHICLES < window_counts.max() * 1.5:
+elif config.TOTAL_VEHICLES < peak_10min * 1.5:
     print(f"  ⚠️  勉强够用，但可能峰值时段匹配率低")
 else:
     print(f"  ✅ 足够应对峰值")
