@@ -127,7 +127,7 @@ class Config:
     POI_ADJ_FILE = 'poi_adj.pt'
 
     # ================== 仿真配置 ==================
-    TOTAL_VEHICLES = 2200  # 基于峰值并发订单数2760，设置为2200（约0.8倍，更有挑战性）
+    TOTAL_VEHICLES = 1800  # 减少到1800辆，增加调度挑战性（供需比0.65）
     IDLE_THRESHOLD_SEC = 120
     AVG_SPEED_KMH = 40
     MAX_WAITING_TIME = 300  # 订单等待 600 秒 (10分钟) 后取消
