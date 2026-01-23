@@ -117,8 +117,6 @@ class Config:
     TEST_EPISODES = 1
     SAVE_FREQ = 4
     LOG_FREQ = 2
-    MODEL_SAVE_PATH = 'results/models/'
-    LOG_SAVE_PATH = 'results/logs/'
 
     EARLY_STOPPING_PATIENCE = 5  # 增加patience，给模型更多收敛机会
     RAW_DATA_PATH = 'data/raw/'
@@ -128,6 +126,10 @@ class Config:
 
     # ================== 仿真配置 ==================
     TOTAL_VEHICLES = 1800  # 减少到1800辆，增加调度挑战性（供需比0.65）
+
+    # ================== 保存路径配置 (基于车辆数) ==================
+    MODEL_SAVE_PATH = f'results/models/vehicles_{TOTAL_VEHICLES}/'  # 按车辆数分目录
+    LOG_SAVE_PATH = f'results/logs/vehicles_{TOTAL_VEHICLES}/'      # 日志也分目录
     IDLE_THRESHOLD_SEC = 120
     AVG_SPEED_KMH = 40
     MAX_WAITING_TIME = 300  # 订单等待 600 秒 (10分钟) 后取消
