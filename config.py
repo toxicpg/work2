@@ -128,8 +128,12 @@ class Config:
     TOTAL_VEHICLES = 1800  # 减少到1800辆，增加调度挑战性（供需比0.65）
 
     # ================== 保存路径配置 (基于车辆数) ==================
-    MODEL_SAVE_PATH = f'results/models/vehicles_{TOTAL_VEHICLES}/'  # 按车辆数分目录
-    LOG_SAVE_PATH = f'results/logs/vehicles_{TOTAL_VEHICLES}/'      # 日志也分目录
+    # 所有结果都按车辆数分目录,避免不同配置相互覆盖
+    RESULTS_BASE_PATH = f'results/vehicles_{TOTAL_VEHICLES}/'
+    MODEL_SAVE_PATH = f'{RESULTS_BASE_PATH}models/'           # 模型保存路径
+    LOG_SAVE_PATH = f'{RESULTS_BASE_PATH}logs/'               # 训练日志路径
+    ABLATION_SAVE_PATH = f'{RESULTS_BASE_PATH}ablation/'      # 消融实验结果路径
+    BENCHMARK_SAVE_PATH = f'{RESULTS_BASE_PATH}benchmarks/'   # Baseline结果路径
     IDLE_THRESHOLD_SEC = 120
     AVG_SPEED_KMH = 40
     MAX_WAITING_TIME = 300  # 订单等待 600 秒 (10分钟) 后取消
