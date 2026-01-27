@@ -105,12 +105,32 @@ class AblationDispatcher(nn.Module):
         self.ablation_type = ablation_type
 
         # ===== 特征提取器 =====
-        if ablation_type == 'no_mgcn' or ablation_type == 'minimal':
+        if ablation_type == 'no_mgcn':
             # 使用简化的 MLP
             self.feature_extractor = SimplifiedMLP(config)
             feature_dim = config.HIDDEN_DIMS[-1]
+        elif ablation_type == 'neighbor_only':
+            # 单图MGCN: 仅使用邻接图
+            self.feature_extractor = MGCN_Separate(
+                input_dim=config.INPUT_DIM,
+                hidden_dims=config.HIDDEN_DIMS,
+                neighbor_adj=neighbor_adj,
+                poi_adj=poi_adj,
+                use_neighbor_only=True
+            )
+            feature_dim = config.HIDDEN_DIMS[-1]
+        elif ablation_type == 'poi_only':
+            # 单图MGCN: 仅使用POI图
+            self.feature_extractor = MGCN_Separate(
+                input_dim=config.INPUT_DIM,
+                hidden_dims=config.HIDDEN_DIMS,
+                neighbor_adj=neighbor_adj,
+                poi_adj=poi_adj,
+                use_poi_only=True
+            )
+            feature_dim = config.HIDDEN_DIMS[-1]
         else:
-            # 使用 MGCN
+            # 完整的双图MGCN (full_model 或 no_dueling)
             self.feature_extractor = MGCN_Separate(
                 input_dim=config.INPUT_DIM,
                 hidden_dims=config.HIDDEN_DIMS,
@@ -153,11 +173,11 @@ class AblationDispatcher(nn.Module):
             )
 
         # ===== Q-Value 头部 =====
-        if ablation_type == 'no_dueling' or ablation_type == 'minimal':
+        if ablation_type == 'no_dueling':
             # 标准 DQN
             self.q_head = StandardDQNHead(config.FINAL_HIDDEN_DIM, config.NUM_ACTIONS)
         else:
-            # Dueling DQN
+            # Dueling DQN (full_model, no_mgcn, neighbor_only, poi_only)
             self.q_head = DuelingDQNHead(config.FINAL_HIDDEN_DIM, config.NUM_ACTIONS)
 
     def forward(self, node_features, vehicle_locations, day_of_week):

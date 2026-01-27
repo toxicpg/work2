@@ -15,7 +15,7 @@
    python run_ablation_simple.py --ablation minimal
 
 3. 指定 episode 数量:
-   python run_ablation_simple.py --episodes 10
+   python run_ablation_simple.py --train-episodes 10 --test-episodes 7
 """
 
 import sys
@@ -39,47 +39,52 @@ from utils.data_process import DataProcessor
 from utils.graph_builder import GraphBuilder
 from environment import RideHailingEnvironment
 from models.ablation_trainer import AblationMGCNTrainer
+from evaluate import evaluate_model
 
 
 ABLATION_TYPES = {
-    'full_model': '完整模型 (基准)',
-    'no_mgcn': '无 MGCN - 使用简化 MLP',
-    'no_dueling': '无 Dueling DQN - 使用标准 DQN',
-    'no_per': '无 PER - 使用统一采样',
-    'no_multi_stage_reward': '无多阶段奖励 - 使用简化奖励',
-    'no_attention_fusion': '无注意力融合 - 使用拼接',
-    'minimal': '最小化模型 - 仅保留基础组件',
+    'full_model': '完整模型 (双图MGCN + Dueling)',
+    'no_mgcn': '无MGCN - 使用简化MLP',
+    'neighbor_only': '单图MGCN - 仅邻接图',
+    'poi_only': '单图MGCN - 仅POI图',
+    'no_dueling': '无Dueling - 使用标准DQN',
 }
 
 
 def run_single_ablation(ablation_type, config, data_processor, neighbor_adj, poi_adj,
-                       train_orders, val_orders, num_episodes=5):
-    """运行单个消融实验"""
+                       train_orders, val_orders, test_orders,
+                       num_train_episodes=10, num_test_episodes=7):
+    """运行单个消融实验 (训练 + 测试)"""
 
     print(f"\n{'='*80}")
     print(f"消融实验: {ablation_type}")
     print(f"描述: {ABLATION_TYPES[ablation_type]}")
-    print(f"Episodes: {num_episodes}")
+    print(f"训练 Episodes: {num_train_episodes}, 测试 Episodes: {num_test_episodes}")
+    print(f"{'='*80}\n")
+
+    # ===== 阶段1: 训练 =====
+    print(f"\n{'='*80}")
+    print(f"阶段 1/2: 训练阶段")
     print(f"{'='*80}\n")
 
     # 创建训练器
     trainer = AblationMGCNTrainer(config, neighbor_adj, poi_adj, ablation_type)
 
-    # 创建环境
-    env = RideHailingEnvironment(config, data_processor, train_orders)
-    if hasattr(env, 'set_model_and_buffer'):
-        env.set_model_and_buffer(trainer.main_net, trainer.replay_buffer, config.DEVICE)
+    # 创建训练环境
+    train_env = RideHailingEnvironment(config, data_processor, train_orders)
+    if hasattr(train_env, 'set_model_and_buffer'):
+        train_env.set_model_and_buffer(trainer.main_net, trainer.replay_buffer, config.DEVICE)
     else:
-        env.model = trainer.main_net
-        env.replay_buffer = trainer.replay_buffer
-        env.device = config.DEVICE
+        train_env.model = trainer.main_net
+        train_env.replay_buffer = trainer.replay_buffer
+        train_env.device = config.DEVICE
 
     # 训练循环
-    episode_results = []
-    for episode in range(1, num_episodes + 1):
-        print(f"\n--- Episode {episode}/{num_episodes} ---")
+    train_episode_results = []
+    for episode in range(1, num_train_episodes + 1):
+        print(f"\n--- 训练 Episode {episode}/{num_train_episodes} ---")
 
-        reward, loss = trainer.train_episode(env, episode)
+        reward, loss = trainer.train_episode(train_env, episode)
 
         episode_result = {
             'episode': episode,
@@ -87,22 +92,53 @@ def run_single_ablation(ablation_type, config, data_processor, neighbor_adj, poi
             'train_loss': loss,
             'epsilon': trainer.epsilon,
         }
-        episode_results.append(episode_result)
+        train_episode_results.append(episode_result)
 
-        print(f"  Reward: {reward:.2f}")
-        print(f"  Loss: {loss:.4f}")
-        print(f"  Epsilon: {trainer.epsilon:.4f}")
-        print(f"  Replay Buffer Size: {len(trainer.replay_buffer)}")
+        print(f"  Reward: {reward:.2f}, Loss: {loss:.4f}, Epsilon: {trainer.epsilon:.4f}")
+
+    # ===== 阶段2: 测试 =====
+    print(f"\n{'='*80}")
+    print(f"阶段 2/2: 测试阶段")
+    print(f"{'='*80}\n")
+
+    # 创建测试环境
+    test_env = RideHailingEnvironment(config, data_processor, test_orders)
+    if hasattr(test_env, 'set_model_and_buffer'):
+        test_env.set_model_and_buffer(trainer.main_net, None, config.DEVICE)
+    else:
+        test_env.model = trainer.main_net
+        test_env.replay_buffer = None
+        test_env.device = config.DEVICE
+
+    # 在测试集上评估
+    print(f"在测试集上评估 (共 {num_test_episodes} 个Episodes)...")
+    avg_test_results, daily_test_results = evaluate_model(
+        trainer, test_env, num_test_episodes, config, verbose=False
+    )
+
+    print(f"\n测试结果:")
+    print(f"  完成率: {avg_test_results['completion_rate']:.2%}")
+    print(f"  取消率: {avg_test_results['cancel_rate']:.2%}")
+    print(f"  平均等待时间: {avg_test_results['avg_waiting_time']:.1f}秒")
+    print(f"  车辆利用率: {avg_test_results['vehicle_utilization']:.2%}")
+    print(f"  总收入: {avg_test_results['avg_total_revenue']:.2f}")
 
     # 获取总结
     summary = trainer.get_ablation_summary()
-    summary['episodes'] = episode_results
+    summary['train_episodes'] = train_episode_results
+    summary['test_results'] = avg_test_results
+    summary['test_completion_rate'] = avg_test_results['completion_rate']
+    summary['test_cancel_rate'] = avg_test_results['cancel_rate']
+    summary['test_avg_waiting_time'] = avg_test_results['avg_waiting_time']
+    summary['test_vehicle_utilization'] = avg_test_results['vehicle_utilization']
+    summary['test_total_revenue'] = avg_test_results['avg_total_revenue']
 
     return summary
 
 
 def run_all_ablations(config, data_processor, neighbor_adj, poi_adj,
-                     train_orders, val_orders, num_episodes=5):
+                     train_orders, val_orders, test_orders,
+                     num_train_episodes=10, num_test_episodes=7):
     """运行所有消融实验"""
 
     all_results = {}
@@ -111,7 +147,8 @@ def run_all_ablations(config, data_processor, neighbor_adj, poi_adj,
         try:
             result = run_single_ablation(
                 ablation_type, config, data_processor, neighbor_adj, poi_adj,
-                train_orders, val_orders, num_episodes
+                train_orders, val_orders, test_orders,
+                num_train_episodes, num_test_episodes
             )
             all_results[ablation_type] = result
         except Exception as e:
@@ -125,34 +162,35 @@ def run_all_ablations(config, data_processor, neighbor_adj, poi_adj,
 def print_comparison_report(all_results):
     """打印对比报告"""
 
-    print(f"\n\n{'='*100}")
-    print(f"消融实验对比报告")
-    print(f"{'='*100}\n")
+    print(f"\n\n{'='*120}")
+    print(f"消融实验对比报告 - 测试集性能")
+    print(f"{'='*120}\n")
 
-    # 创建对比表格
+    # 创建对比表格 (测试集指标)
     comparison_data = []
     for ablation_type, result in all_results.items():
         comparison_data.append({
             'Ablation Type': ablation_type,
-            'Description': ABLATION_TYPES[ablation_type],
-            'Avg Reward': result['avg_reward'],
-            'Std Reward': result['std_reward'],
-            'Avg Loss': result['avg_loss'],
-            'Final Epsilon': result['final_epsilon'],
+            'Description': ABLATION_TYPES[ablation_type][:20] + '...',  # 截断描述
+            'Completion Rate': result.get('test_completion_rate', 0.0),
+            'Cancel Rate': result.get('test_cancel_rate', 0.0),
+            'Avg Wait Time': result.get('test_avg_waiting_time', 0.0),
+            'Vehicle Util': result.get('test_vehicle_utilization', 0.0),
+            'Total Revenue': result.get('test_total_revenue', 0.0),
         })
 
     df = pd.DataFrame(comparison_data)
     print(df.to_string(index=False))
     print()
 
-    # 计算性能差异
+    # 计算性能差异 (基于测试集完成率)
     full_model = all_results.get('full_model', {})
     if full_model:
-        print(f"\n{'='*100}")
-        print(f"性能差异分析 (相对于完整模型)")
-        print(f"{'='*100}\n")
+        print(f"\n{'='*120}")
+        print(f"性能差异分析 (相对于完整模型, 基于测试集完成率)")
+        print(f"{'='*120}\n")
 
-        full_reward = full_model['avg_reward']
+        full_completion = full_model.get('test_completion_rate', 0.0)
 
         for ablation_type, result in all_results.items():
             if ablation_type == 'full_model':
@@ -167,12 +205,13 @@ def print_comparison_report(all_results):
             print(f"  平均损失: {result['avg_loss']:.4f}")
 
 
-def save_results(all_results):
+def save_results(all_results, config):
     """保存结果"""
-    os.makedirs('results/ablation_studies/', exist_ok=True)
+    save_dir = getattr(config, 'ABLATION_SAVE_PATH', 'results/ablation_studies/')
+    os.makedirs(save_dir, exist_ok=True)
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    result_file = f'results/ablation_studies/ablation_results_{timestamp}.json'
+    result_file = os.path.join(save_dir, f'ablation_results_{timestamp}.json')
 
     # 转换为可序列化的格式
     serializable_results = {}
@@ -180,11 +219,16 @@ def save_results(all_results):
         serializable_results[ablation_type] = {
             'ablation_type': result['ablation_type'],
             'total_episodes': result['total_episodes'],
-            'avg_reward': float(result['avg_reward']),
-            'std_reward': float(result['std_reward']),
-            'avg_loss': float(result['avg_loss']),
+            'train_avg_reward': float(result['avg_reward']),
+            'train_std_reward': float(result['std_reward']),
+            'train_avg_loss': float(result['avg_loss']),
             'final_epsilon': float(result['final_epsilon']),
-            'episodes': result['episodes']
+            'test_completion_rate': float(result.get('test_completion_rate', 0.0)),
+            'test_cancel_rate': float(result.get('test_cancel_rate', 0.0)),
+            'test_avg_waiting_time': float(result.get('test_avg_waiting_time', 0.0)),
+            'test_vehicle_utilization': float(result.get('test_vehicle_utilization', 0.0)),
+            'test_total_revenue': float(result.get('test_total_revenue', 0.0)),
+            'train_episodes': result['train_episodes']
         }
 
     with open(result_file, 'w', encoding='utf-8') as f:
@@ -200,8 +244,10 @@ def main():
     parser = argparse.ArgumentParser(description='运行消融实验')
     parser.add_argument('--ablation', type=str, default=None,
                        help=f'指定消融类型: {", ".join(ABLATION_TYPES.keys())}')
-    parser.add_argument('--episodes', type=int, default=5,
-                       help='每个消融实验的 episode 数量')
+    parser.add_argument('--train-episodes', type=int, default=10,
+                       help='训练的 episode 数量 (默认: 10)')
+    parser.add_argument('--test-episodes', type=int, default=7,
+                       help='测试的 episode 数量，对应测试集7天 (默认: 7)')
     args = parser.parse_args()
 
     # 初始化配置和数据
@@ -213,7 +259,7 @@ def main():
     print("加载数据...")
     data_processor = DataProcessor(config)
     all_orders = data_processor.load_and_process_orders()
-    train_orders, val_orders, _ = data_processor.split_data_by_time(
+    train_orders, val_orders, test_orders = data_processor.split_data_by_time(
         all_orders, config.TRAIN_RATIO, config.VAL_RATIO
     )
 
@@ -231,19 +277,21 @@ def main():
 
         result = run_single_ablation(
             args.ablation, config, data_processor, neighbor_adj, poi_adj,
-            train_orders, val_orders, args.episodes
+            train_orders, val_orders, test_orders,
+            args.train_episodes, args.test_episodes
         )
         all_results = {args.ablation: result}
     else:
         # 运行所有消融类型
         all_results = run_all_ablations(
             config, data_processor, neighbor_adj, poi_adj,
-            train_orders, val_orders, args.episodes
+            train_orders, val_orders, test_orders,
+            args.train_episodes, args.test_episodes
         )
 
     # 打印报告和保存结果
     print_comparison_report(all_results)
-    save_results(all_results)
+    save_results(all_results, config)
 
 
 if __name__ == '__main__':
