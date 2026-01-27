@@ -47,12 +47,13 @@ class SimpleReplayBuffer:
         # 解包数据
         states, actions, rewards, next_states, dones = zip(*batch_data)
 
+        # 转换为与 PrioritizedReplayBuffer 兼容的格式
         batch = {
             'current_state': list(states),
-            'action': torch.tensor(actions, dtype=torch.long),
-            'reward': torch.tensor(rewards, dtype=torch.float32),
+            'action': torch.LongTensor(list(actions)),
+            'reward': torch.FloatTensor(list(rewards)),
             'next_state': list(next_states),
-            'done': torch.tensor(dones, dtype=torch.float32)
+            'done': torch.FloatTensor(list(dones))
         }
 
         weights = torch.ones(batch_size, dtype=torch.float32)
