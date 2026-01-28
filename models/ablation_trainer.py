@@ -47,13 +47,13 @@ class SimpleReplayBuffer:
         # 解包数据
         states, actions, rewards, next_states, dones = zip(*batch_data)
 
-        # 转换为与 PrioritizedReplayBuffer 兼容的格式
+        # 转换为与 PrioritizedReplayBuffer 兼容的格式（使用复数形式的键名）
         batch = {
             'current_state': list(states),
-            'action': torch.LongTensor(list(actions)),
-            'reward': torch.FloatTensor(list(rewards)),
+            'actions': torch.LongTensor(list(actions)),
+            'rewards': torch.FloatTensor(list(rewards)),
             'next_state': list(next_states),
-            'done': torch.FloatTensor(list(dones))
+            'dones': torch.FloatTensor(list(dones))
         }
 
         weights = torch.ones(batch_size, dtype=torch.float32)
@@ -214,9 +214,9 @@ class AblationMGCNTrainer:
                 dtype=torch.long
             ).to(self.device)
 
-            actions = batch['action'].to(self.device)
-            rewards = batch['reward'].to(self.device)
-            dones = batch['done'].to(self.device)
+            actions = batch['actions'].to(self.device)
+            rewards = batch['rewards'].to(self.device)
+            dones = batch['dones'].to(self.device)
 
         except Exception as e:
             print(f"❌ 数据准备失败: {e}")
