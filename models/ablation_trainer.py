@@ -53,7 +53,7 @@ class SimpleReplayBuffer:
             'actions': torch.LongTensor(list(actions)),
             'rewards': torch.FloatTensor(list(rewards)),
             'next_state': list(next_states),
-            'dones': torch.FloatTensor(list(dones))
+            'dones': torch.BoolTensor(list(dones))  # 使用 BoolTensor 以匹配正常 trainer
         }
 
         weights = torch.ones(batch_size, dtype=torch.float32)
@@ -234,7 +234,7 @@ class AblationMGCNTrainer:
             )
             q_next_target_best = q_next_target.gather(1, best_actions.unsqueeze(1)).squeeze(1)
 
-            target_q = rewards + self.config.GAMMA * q_next_target_best * (1 - dones)
+            target_q = rewards + self.config.GAMMA * q_next_target_best * (~dones)
 
         # 计算当前 Q 值
         q_current = self.main_net(
