@@ -465,13 +465,10 @@ class OrderMatcher:
                         best_match_vehicle_id = v_id
 
             if best_match_vehicle_id is not None:
-                assign_success = vehicle_manager.assign_order(best_match_vehicle_id, order)
-                if assign_success:
-                    matches.append({'order': order, 'vehicle_id': best_match_vehicle_id, 'distance': min_travel_time})
-                    if best_match_vehicle_id in available_idle_vehicles:
-                        del available_idle_vehicles[best_match_vehicle_id]
-                else:
-                    still_unmatched.append(order)
+                # 注意：这里不直接assign，而是返回匹配结果，在step()中统一assign
+                matches.append({'order': order, 'vehicle_id': best_match_vehicle_id, 'distance': min_travel_time})
+                if best_match_vehicle_id in available_idle_vehicles:
+                    del available_idle_vehicles[best_match_vehicle_id]
             else:
                 still_unmatched.append(order)
 
