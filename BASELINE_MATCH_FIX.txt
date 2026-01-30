@@ -1,0 +1,70 @@
+===============================================================================
+Baseline 环境匹配率修复说明
+===============================================================================
+
+问题描述：
+----------
+之前的 baseline 环境（Random Walk, Random Dispatch）出现匹配率虚高（接近100%）的问题。
+
+根本原因：
+----------
+1. 订单一旦匹配就被直接算作"完成"
+2. 没有模拟车辆实际行驶和完成订单的过程
+3. 等待时间计算不正确（在匹配时就记录，而不是完成时）
+
+修复方案：
+----------
+参考主环境 (environment.py) 的订单流程，正确实现：
+
+【订单生命周期】
+1. 订单生成 → pending_orders
+2. 匹配成功 → 车辆状态变为 'serving'，记录匹配时间
+3. 车辆行驶 → pickup_time（接驾）+ service_time（送达）
+4. 订单完成 → 车辆状态变为 'idle'，记录完成时间和等待时间
+5. 订单取消 → 超时未匹配或总等待时间过长
+
+【关键修改】
+1. VehicleManager.assign_order()
+   - 添加 current_time 和 pickup_time_minutes 参数
+   - 计算 total_time = pickup_time + service_time
+   - 记录订单匹配时间
+
+2. VehicleManager.update_serving_vehicles()
+   - 新增方法，检查正在服务的车辆
+   - 当 elapsed_time >= estimated_completion_time 时，订单完成
+   - 计算真实等待时间：从订单生成到完成的总时间
+   - 返回完成的订单列表
+
+3. RewardCalculator
+   - 区分 matched_orders 和 completed_orders
+   - match_rate = matched / (matched + cancelled)
+   - completion_rate = completed / (completed + cancelled)
+   - 等待时间只在订单完成时记录
+
+4. BaselineEnvironment.step()
+   - 在每个 tick 调用 update_serving_vehicles() 检查订单完成
+   - 匹配订单时传入正确的 pickup_time（从 match['distance'] 获取）
+   - 完成订单时才记录等待时间
+
+【预期效果】
+- 匹配率会降低（不再是100%）
+- 完成率 <= 匹配率（因为有些匹配的订单可能还在进行中或被取消）
+- 等待时间更真实（包含接驾时间和行程时间）
+
+【测试建议】
+在有完整环境的Windows机器上运行：
+```bash
+python run_all_random_baselines.py
+```
+
+观察输出中的：
+- 匹配率（match_rate）
+- 完成率（completion_rate）
+- 平均等待时间（avg_waiting_time）
+
+这些指标应该更接近主环境的真实情况。
+
+===============================================================================
+修复完成时间: 2026-01-30
+===============================================================================
+
