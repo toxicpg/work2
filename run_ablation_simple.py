@@ -81,6 +81,12 @@ def run_single_ablation(ablation_type, config, data_processor, neighbor_adj, poi
 
     # 训练循环
     train_episode_results = []
+
+    # 早停参数
+    best_reward = float('-inf')
+    early_stopping_counter = 0
+    early_stopping_patience = config.EARLY_STOPPING_PATIENCE
+
     for episode in range(1, num_train_episodes + 1):
         print(f"\n--- 训练 Episode {episode}/{num_train_episodes} ---")
 
@@ -95,6 +101,19 @@ def run_single_ablation(ablation_type, config, data_processor, neighbor_adj, poi
         train_episode_results.append(episode_result)
 
         print(f"  Reward: {reward:.2f}, Loss: {loss:.4f}, Epsilon: {trainer.epsilon:.4f}")
+
+        # 早停检查
+        if reward > best_reward:
+            best_reward = reward
+            early_stopping_counter = 0
+            print(f"  ✓ 新的最佳奖励: {best_reward:.2f}")
+        else:
+            early_stopping_counter += 1
+            print(f"  早停计数: {early_stopping_counter}/{early_stopping_patience}")
+
+        if early_stopping_counter >= early_stopping_patience:
+            print(f"\n早停触发！连续 {early_stopping_patience} 个episode奖励未提升。")
+            break
 
     # ===== 阶段2: 测试 =====
     print(f"\n{'='*80}")

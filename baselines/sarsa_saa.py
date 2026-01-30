@@ -498,10 +498,36 @@ def run_sarsa_saa_simulation(config, num_episodes, env_data, num_rounds=5):
         # 如果训练集有 30 天，全跑完可能要很久。
         # 我们可以折中：预填充用了所有数据(SAA已完美)。SARSA Q值训练跑最近的 15 天 (两周多)。
         # 这样既能保证充分收敛，又比全跑要快。
+        # 添加早停机制：监控最近几天的平均完成率，连续3次未提升则停止
         train_simulation_days = train_days[-15:] if len(train_days) > 15 else train_days
         print(f"  正在运行 SARSA 强化训练 (Simulation on last {len(train_simulation_days)} training days)...")
         
-        run_simulation_phase("Training", train_simulation_days, env, agent, config, round_idx, current_seed, is_training=True)
+        # 早停参数
+        best_train_performance = 0.0
+        early_stopping_counter = 0
+        early_stopping_patience = config.EARLY_STOPPING_PATIENCE
+        check_window = 3  # 每3天检查一次
+
+        # 分批训练，支持早停
+        for i in range(0, len(train_simulation_days), check_window):
+            batch_days = train_simulation_days[i:i+check_window]
+            run_simulation_phase("Training", batch_days, env, agent, config, round_idx, current_seed, is_training=True)
+
+            # 评估当前性能（使用最后一天的简单指标）
+            # 这里简化处理，实际可以收集返回值
+            current_performance = len(agent.q_table)  # Q表大小作为学习进度指标
+
+            if current_performance > best_train_performance:
+                best_train_performance = current_performance
+                early_stopping_counter = 0
+                print(f"    ✓ Q表更新: {current_performance} 个状态")
+            else:
+                early_stopping_counter += 1
+                print(f"    早停计数: {early_stopping_counter}/{early_stopping_patience}")
+
+            if early_stopping_counter >= early_stopping_patience:
+                print(f"  早停触发！连续 {early_stopping_patience} 批次性能未提升。")
+                break
 
         # --- Phase 2: 测试 (Testing) ---
         print(f"  正在运行测试 (Evaluation on last 7 days)...")

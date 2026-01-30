@@ -1,0 +1,252 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    Baseline对比实验运行指南                                 ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+【实验配置】
+────────────────────────────────────────────────────────────────────────────
+车辆数量: 1800, 2000, 2200
+Baseline方法: Random Walk, Random Dispatch, SARSA-SAA, H-MARL, CNN-DDQN
+总实验数: 3 × 5 = 15 个
+
+
+【方法1: 自动批量运行（推荐）】
+────────────────────────────────────────────────────────────────────────────
+一键运行所有配置:
+
+    python run_baselines_all_vehicles.py
+
+特点:
+  ✓ 自动切换车辆数量配置
+  ✓ 自动运行所有5个baseline
+  ✓ 自动备份和恢复config.py
+  ✓ 生成完整实验报告
+  ✓ 预计总时间: 5-8小时
+
+结果保存位置:
+  - results/vehicles_1800/baselines/
+  - results/vehicles_2000/baselines/
+  - results/vehicles_2200/baselines/
+
+
+【方法2: 手动逐个运行】
+────────────────────────────────────────────────────────────────────────────
+适合分步执行或单独测试某个配置
+
+步骤1: 修改config.py
+  打开 config.py, 找到:
+    TOTAL_VEHICLES = 2000
+
+  改为你想测试的数量:
+    TOTAL_VEHICLES = 1800  # 或 2000, 或 2200
+
+步骤2: 运行单个baseline
+  python baselines/random_walk.py      # 快速 (~5分钟)
+  python baselines/random_dispatch.py  # 快速 (~5分钟)
+  python baselines/sarsa_saa.py        # 中等 (~20分钟)
+  python baselines/train_hmarl.py      # 较慢 (~40分钟)
+  python baselines/cnn_ddqn.py         # 较慢 (~40分钟)
+
+步骤3: 重复步骤1-2
+  为每个车辆数量重复以上步骤
+
+
+【方法3: 选择性运行】
+────────────────────────────────────────────────────────────────────────────
+只运行部分baseline或部分车辆配置
+
+修改 run_baselines_all_vehicles.py:
+
+  VEHICLE_COUNTS = [2000]  # 只测试2000辆车
+
+  BASELINE_SCRIPTS = {
+      'cnn_ddqn': 'baselines/cnn_ddqn.py',  # 只运行CNN-DDQN
+  }
+
+然后运行:
+  python run_baselines_all_vehicles.py
+
+
+【各Baseline方法详情】
+────────────────────────────────────────────────────────────────────────────
+
+1. Random Walk (随机游走)
+   文件: baselines/random_walk.py
+   训练: 不需要
+   时间: ~5分钟
+   特点: 最简单的baseline，作为性能下界
+
+2. Random Dispatch (随机派遣)
+   文件: baselines/random_dispatch.py
+   训练: 不需要
+   时间: ~5分钟
+   特点: 考虑热点区域的简单策略
+
+3. SARSA-SAA
+   文件: baselines/sarsa_saa.py
+   训练: 需要
+   时间: ~20分钟
+   特点: 传统强化学习方法 + 历史数据采样
+
+4. H-MARL (MFuN)
+   文件: baselines/train_hmarl.py
+   训练: 需要
+   时间: ~40分钟
+   特点: 层级多智能体强化学习
+
+5. CNN-DDQN ⭐ 新增
+   文件: baselines/cnn_ddqn.py
+   训练: 需要
+   时间: ~40分钟
+   特点: 卷积神经网络 + Dueling DQN
+   用途: 对比验证图卷积网络(MGCN)的优势
+
+
+【结果文件结构】
+────────────────────────────────────────────────────────────────────────────
+results/
+├── vehicles_1800/
+│   └── baselines/
+│       ├── random_walk_results_*.json
+│       ├── random_dispatch_results_*.json
+│       ├── sarsa_saa_results_*.json
+│       ├── hmarl_results_*.json
+│       └── cnn_ddqn_results_*.json
+├── vehicles_2000/
+│   └── baselines/
+│       └── (同上)
+└── vehicles_2200/
+    └── baselines/
+        └── (同上)
+
+
+【结果JSON格式】
+────────────────────────────────────────────────────────────────────────────
+每个结果文件包含:
+
+{
+  "method": "方法名称",
+  "vehicle_count": 车辆数量,
+  "avg_results": {
+    "completion_rate": 0.XX,      // 完成率
+    "cancel_rate": 0.XX,          // 取消率
+    "avg_waiting_time": XXX.X,    // 平均等待时间(秒)
+    "vehicle_utilization": 0.XX,  // 车辆利用率
+    "avg_total_revenue": XXXX.X   // 平均总收入
+  },
+  "daily_results": [...]          // 每天的详细结果
+}
+
+
+【实验监控】
+────────────────────────────────────────────────────────────────────────────
+运行时会实时显示:
+  ✓ 当前车辆配置
+  ✓ 当前运行的baseline
+  ✓ 训练进度条
+  ✓ 实时指标(Loss, Reward等)
+  ✓ 完成时间和状态
+
+
+【故障排查】
+────────────────────────────────────────────────────────────────────────────
+
+问题1: "CUDA out of memory"
+解决:
+  - 打开config.py, 设置 DEVICE = 'cpu'
+  - 或减小 BATCH_SIZE
+
+问题2: 某个baseline运行失败
+解决:
+  - 查看错误信息
+  - 单独运行该baseline调试
+  - 可以跳过该baseline，继续运行其他的
+
+问题3: config.py未正确恢复
+解决:
+  - 查看是否有 config.py.backup
+  - 手动恢复: cp config.py.backup config.py
+
+问题4: 中断后如何继续
+解决:
+  - 查看已完成的实验结果
+  - 修改脚本，只运行未完成的部分
+
+
+【实验完成后】
+────────────────────────────────────────────────────────────────────────────
+
+1. 收集所有结果:
+   - 检查 results/vehicles_*/baselines/ 目录
+   - 确保每个配置都有5个结果文件
+
+2. 生成对比图表:
+   python utils/shiyantu.py
+
+3. 分析结果:
+   - 对比不同车辆数量下的性能
+   - 对比不同方法的优劣
+   - CNN-DDQN vs 你的MGCN方法
+
+4. 撰写论文:
+   - 使用生成的图表
+   - 引用baseline方法的文献
+   - 分析MGCN的优势
+
+
+【预期结果排序】
+────────────────────────────────────────────────────────────────────────────
+完成率 (从低到高):
+  Random Walk < Random Dispatch < SARSA-SAA ≈ H-MARL ≈ CNN-DDQN < MGCN(你的)
+
+等待时间 (从高到低):
+  Random Walk > Random Dispatch > SARSA-SAA ≈ H-MARL ≈ CNN-DDQN > MGCN(你的)
+
+
+【时间估算】
+────────────────────────────────────────────────────────────────────────────
+单个车辆配置 (5个baseline):
+  Random Walk:     5分钟
+  Random Dispatch: 5分钟
+  SARSA-SAA:      20分钟
+  H-MARL:         40分钟
+  CNN-DDQN:       40分钟
+  ─────────────────────
+  小计:         ~110分钟
+
+全部3个车辆配置:
+  110分钟 × 3 = 330分钟 ≈ 5.5小时
+
+建议:
+  - 在GPU服务器上运行
+  - 夜间或周末运行
+  - 使用 nohup 或 screen 保持后台运行
+
+
+【快速命令参考】
+────────────────────────────────────────────────────────────────────────────
+
+# 查看帮助
+python run_baselines_all_vehicles.py --help
+
+# 完整运行
+python run_baselines_all_vehicles.py
+
+# 后台运行 (Linux/Mac)
+nohup python run_baselines_all_vehicles.py > baseline_experiments.log 2>&1 &
+
+# 查看运行日志
+tail -f baseline_experiments.log
+
+# 测试单个方法
+python baselines/cnn_ddqn.py
+
+
+【联系与支持】
+────────────────────────────────────────────────────────────────────────────
+如遇问题:
+  1. 查看 baselines/README_BASELINES.md
+  2. 检查错误日志
+  3. 单独测试失败的baseline
+
+祝实验顺利！🎉
+

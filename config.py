@@ -118,7 +118,7 @@ class Config:
     SAVE_FREQ = 4
     LOG_FREQ = 2
 
-    EARLY_STOPPING_PATIENCE = 5  # 增加patience，给模型更多收敛机会
+    EARLY_STOPPING_PATIENCE = 3  # 连续3次验证未提升则停止训练
     RAW_DATA_PATH = 'data/raw/'
     ORDER_FILE = 'orders.csv'
     NEIGHBOR_ADJ_FILE = 'neighbor_adj.pt'

@@ -46,6 +46,11 @@ def train_hmarl():
     # 4. Training Loop
     num_episodes = 5 # 演示用，实际建议 50+
     
+    # 早停参数
+    best_reward = float('-inf')
+    early_stopping_counter = 0
+    early_stopping_patience = config.EARLY_STOPPING_PATIENCE
+
     for episode in range(num_episodes):
         print(f"\n=== Episode {episode+1}/{num_episodes} ===")
         
@@ -151,6 +156,19 @@ def train_hmarl():
         pbar.close()
         print(f"  Episode Total Reward: {total_reward:.2f}")
         
+        # 早停检查
+        if total_reward > best_reward:
+            best_reward = total_reward
+            early_stopping_counter = 0
+            print(f"  ✓ 新的最佳奖励: {best_reward:.2f}")
+        else:
+            early_stopping_counter += 1
+            print(f"  早停计数: {early_stopping_counter}/{early_stopping_patience}")
+
+        if early_stopping_counter >= early_stopping_patience:
+            print(f"\n早停触发！连续 {early_stopping_patience} 个episode奖励未提升。")
+            break
+
     # Save Model
     torch.save(agent.manager.state_dict(), "baselines/mfun_manager.pth")
     torch.save(agent.worker_shared.state_dict(), "baselines/mfun_worker.pth")
