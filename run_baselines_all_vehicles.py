@@ -39,7 +39,9 @@ def modify_config_vehicles(vehicle_count):
     modified = False
     for i, line in enumerate(lines):
         if line.strip().startswith('TOTAL_VEHICLES') and '=' in line:
-            lines[i] = f'        TOTAL_VEHICLES = {vehicle_count}  # 车辆总数\n'
+            # 保持原有的缩进
+            indent = len(line) - len(line.lstrip())
+            lines[i] = ' ' * indent + f'TOTAL_VEHICLES = {vehicle_count}  # 车辆总数\n'
             modified = True
             break
 
