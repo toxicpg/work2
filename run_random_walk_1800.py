@@ -9,8 +9,9 @@ sys.path.insert(0, os.getcwd())
 
 from config import Config
 from utils.data_process import DataProcessor
-from baselines.random_walk import run_random_walk_simulation
+from baselines.random_walk import run_last7_days_random_walk
 import json
+import numpy as np
 from datetime import datetime
 
 if __name__ == '__main__':
@@ -42,11 +43,31 @@ if __name__ == '__main__':
 
     print(f"测试集订单数: {len(test_orders):,}")
 
-    # 运行测试
-    results = run_random_walk_simulation(config, num_episodes=7, env_data=test_orders)
+    # 运行测试（最后7天）
+    print("\n运行Random Walk测试（最后7天）...")
+    daily_results = run_last7_days_random_walk(config, test_orders)
 
     # 保存结果
-    if results:
+    if daily_results:
+        # 计算汇总指标
+        overall_results = {
+            'method': 'Random Walk',
+            'vehicle_count': config.TOTAL_VEHICLES,
+            'num_days': len(daily_results),
+            'avg_completion_rate': float(np.mean([d['completion_rate'] for d in daily_results])),
+            'avg_cancel_rate': float(np.mean([d['cancel_rate'] for d in daily_results])),
+            'avg_waiting_time': float(np.mean([d['avg_waiting_time'] for d in daily_results])),
+            'avg_revenue': float(np.mean([d['total_revenue'] for d in daily_results])),
+            'daily_results': daily_results
+        }
+
+        # 打印结果
+        print(f"\n结果汇总:")
+        print(f"  完成率: {overall_results['avg_completion_rate']:.2%}")
+        print(f"  取消率: {overall_results['avg_cancel_rate']:.2%}")
+        print(f"  平均等待时间: {overall_results['avg_waiting_time']:.1f}秒")
+        print(f"  平均收入: {overall_results['avg_revenue']:.2f}")
+
         save_dir = f'results/vehicles_{config.TOTAL_VEHICLES}/baselines/'
         os.makedirs(save_dir, exist_ok=True)
 
@@ -54,7 +75,7 @@ if __name__ == '__main__':
         result_file = os.path.join(save_dir, f'random_walk_results_{timestamp}.json')
 
         with open(result_file, 'w', encoding='utf-8') as f:
-            json.dump(results, f, indent=2, default=str, ensure_ascii=False)
+            json.dump(overall_results, f, indent=2, default=str, ensure_ascii=False)
 
         print(f"\n✓ 结果已保存到: {result_file}")
         print(f"\n{'='*80}")

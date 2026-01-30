@@ -1,66 +1,44 @@
-"""
-Random Walk Baseline - 2000辆车
-直接运行测试，无需训练
-"""
-import sys
-import os
+"""Random Walk Baseline - 2000辆车"""
+import sys, os
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.getcwd())
-
 from config import Config
 from utils.data_process import DataProcessor
-from baselines.random_walk import run_random_walk_simulation
-import json
+from baselines.random_walk import run_last7_days_random_walk
+import json, numpy as np
 from datetime import datetime
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print("="*80)
     print("Random Walk Baseline - 2000辆车")
     print("="*80)
-
-    # 创建配置并强制设置车辆数量
     config = Config()
     config.TOTAL_VEHICLES = 2000
-
-    # 更新保存路径
-    config.RESULTS_BASE_PATH = f'results/vehicles_{config.TOTAL_VEHICLES}/'
-    config.MODEL_SAVE_PATH = f'{config.RESULTS_BASE_PATH}models/'
-    config.LOG_SAVE_PATH = f'{config.RESULTS_BASE_PATH}logs/'
-    config.ABLATION_SAVE_PATH = f'{config.RESULTS_BASE_PATH}ablation/'
-    config.BENCHMARK_SAVE_PATH = f'{config.RESULTS_BASE_PATH}benchmarks/'
-
+    config.RESULTS_BASE_PATH = f"results/vehicles_2000/"
     print(f"车辆数量: {config.TOTAL_VEHICLES}")
-    print(f"保存路径: {config.RESULTS_BASE_PATH}")
-
-    # 加载数据
-    print("\n加载数据...")
     data_processor = DataProcessor(config)
     all_orders = data_processor.load_and_process_orders()
-    _, _, test_orders = data_processor.split_data_by_time(
-        all_orders, config.TRAIN_RATIO, config.VAL_RATIO
-    )
-
+    _, _, test_orders = data_processor.split_data_by_time(all_orders, config.TRAIN_RATIO, config.VAL_RATIO)
     print(f"测试集订单数: {len(test_orders):,}")
-
-    # 运行测试
-    results = run_random_walk_simulation(config, num_episodes=7, env_data=test_orders)
-
-    # 保存结果
-    if results:
-        save_dir = f'results/vehicles_{config.TOTAL_VEHICLES}/baselines/'
+    print("\n运行Random Walk测试（最后7天）...")
+    daily_results = run_last7_days_random_walk(config, test_orders)
+    if daily_results:
+        overall_results = {
+            "method": "Random Walk",
+            "vehicle_count": 2000,
+            "num_days": len(daily_results),
+            "avg_completion_rate": float(np.mean([d["completion_rate"] for d in daily_results])),
+            "avg_cancel_rate": float(np.mean([d["cancel_rate"] for d in daily_results])),
+            "avg_waiting_time": float(np.mean([d["avg_waiting_time"] for d in daily_results])),
+            "avg_revenue": float(np.mean([d["total_revenue"] for d in daily_results])),
+            "daily_results": daily_results
+        }
+        print(f"\n完成率: {overall_results['avg_completion_rate']:.2%}")
+        save_dir = f"results/vehicles_2000/baselines/"
         os.makedirs(save_dir, exist_ok=True)
-
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        result_file = os.path.join(save_dir, f'random_walk_results_{timestamp}.json')
-
-        with open(result_file, 'w', encoding='utf-8') as f:
-            json.dump(results, f, indent=2, default=str, ensure_ascii=False)
-
-        print(f"\n✓ 结果已保存到: {result_file}")
-        print(f"\n{'='*80}")
-        print("Random Walk - 2000辆车 - 完成")
-        print(f"{'='*80}")
+        result_file = f"{save_dir}/random_walk_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(result_file, "w", encoding="utf-8") as f:
+            json.dump(overall_results, f, indent=2, default=str, ensure_ascii=False)
+        print(f"\n✓ 完成: {result_file}")
     else:
-        print("\n✗ 实验失败")
         sys.exit(1)
-

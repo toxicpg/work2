@@ -93,6 +93,12 @@ class OrderGenerator:
         new_orders = [o.copy() for o in orders_in_slice]
         for o in new_orders:
             o['status'] = 'pending'
+            # 确保timestamp存在且格式正确
+            if 'timestamp' not in o and 'departure_time' in o:
+                try:
+                    o['timestamp'] = pd.to_datetime(o['departure_time'], unit='s' if o['departure_time'] < 1e10 else 'ms')
+                except:
+                    pass
         return new_orders
 
     def get_day_count(self):
@@ -284,10 +290,11 @@ class VehicleManager:
 
 # ========== OrderMatcher Class ==========
 class OrderMatcher:
-    """订单匹配器"""
+    """订单匹配器 - 使用与主环境相同的匹配半径"""
     def __init__(self, config):
         self.config = config
-        self.search_radius = getattr(config, 'MATCHER_SEARCH_RADIUS', 2)
+        # 使用与主环境相同的搜索半径（默认10）
+        self.search_radius = getattr(config, 'MATCHER_SEARCH_RADIUS', 10)
         print(f"  OrderMatcher 初始化 (半径: {self.search_radius})")
 
     def match_orders(self, pending_orders, vehicle_manager, current_time):
@@ -511,8 +518,30 @@ class BaselineEnvironment:
             self.episode_stats['total_orders_matched'] += len(matches)
 
             for match in matches:
-                step_info['revenue'] += match['order'].get('fee', 0.0)
-                step_info['waiting_times'].append(0.0)  # 匹配时等待时间为 0
+                order = match['order']
+                step_info['revenue'] += order.get('fee', 0.0)
+
+                # 计算真实的等待时间
+                if 'timestamp' in order:
+                    try:
+                        gen_time = order['timestamp']
+                        if isinstance(gen_time, (int, float)):
+                            gen_time = pd.to_datetime(gen_time, unit='s' if gen_time < 1e10 else 'ms')
+                        elif isinstance(gen_time, str):
+                            gen_time = pd.to_datetime(gen_time)
+
+                        # 处理时区
+                        if gen_time.tzinfo is None and self.current_time.tzinfo is not None:
+                            gen_time = gen_time.tz_localize(self.current_time.tzinfo)
+                        elif gen_time.tzinfo is not None and self.current_time.tzinfo is None:
+                            gen_time = gen_time.tz_localize(None)
+
+                        wait_time_sec = (self.current_time - gen_time).total_seconds()
+                        step_info['waiting_times'].append(max(0, wait_time_sec))
+                    except Exception as e:
+                        step_info['waiting_times'].append(0.0)
+                else:
+                    step_info['waiting_times'].append(0.0)
 
             self.episode_stats['total_revenue'] += step_info['revenue']
 
