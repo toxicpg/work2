@@ -225,7 +225,8 @@ class VehicleManager:
 
         # 计算接驾时间和行程时间
         pickup_grid = order.get('grid_index', vehicle['current_grid'])
-        dest_grid = order.get('destination_grid', pickup_grid)
+        # 注意：订单数据中字段名是dest_grid_index，不是destination_grid
+        dest_grid = order.get('dest_grid_index', order.get('destination_grid', pickup_grid))
 
         service_time_minutes = self._calculate_travel_time(pickup_grid, dest_grid)
 
@@ -239,9 +240,13 @@ class VehicleManager:
         vehicle['total_completion_time'] = pickup_time_minutes + service_time_minutes  # 总完成时间
         vehicle['idle_since'] = None
 
-        # 在订单上也记录匹配时间，用于后续计算
+        # 在订单上也记录匹配时间，用于后续计算等待时间
         order['matched_time'] = current_time
         order['status'] = 'matched'
+
+        # 记录订单生成时间（用于计算等待时间）
+        if 'timestamp' in order:
+            order['generated_time'] = order['timestamp']
 
         return True
 
@@ -362,6 +367,19 @@ class VehicleManager:
                         # 接驾完成，客人上车，进入送达阶段
                         vehicle['status'] = 'serving'
                         order['status'] = 'picked_up'
+
+                        # 记录客人上车时间，用于计算等待时间（等待时间 = 生成到上车）
+                        if 'timestamp' in order:
+                            gen_time = order['timestamp']
+                            if isinstance(gen_time, str):
+                                gen_time = pd.to_datetime(gen_time)
+                            if gen_time.tzinfo is None and current_time.tzinfo is not None:
+                                gen_time = gen_time.tz_localize(current_time.tzinfo)
+
+                            # 等待时间 = 从生成到客人上车（不包括送客时间）
+                            wait_time_sec = (current_time - gen_time).total_seconds()
+                            order['actual_wait_time'] = wait_time_sec
+
                         # 注意：不要 continue，下面的 serving 逻辑会在下一个 tick 处理
 
                 except Exception as e:
@@ -383,28 +401,19 @@ class VehicleManager:
 
                     # 检查是否完成整个行程（接驾 + 送达）
                     if elapsed_minutes >= vehicle.get('total_completion_time', 0):
-                        # 计算真实等待时间（从订单生成到完成）
-                        if 'timestamp' in order:
-                            gen_time = order['timestamp']
-                            if isinstance(gen_time, str):
-                                gen_time = pd.to_datetime(gen_time)
-                            if gen_time.tzinfo is None and current_time.tzinfo is not None:
-                                gen_time = gen_time.tz_localize(current_time.tzinfo)
-
-                            wait_time_sec = (current_time - gen_time).total_seconds()
-                            order['actual_wait_time'] = wait_time_sec
-
+                        # 等待时间已经在picking_up阶段计算过了（客人上车时）
+                        # 这里只需标记订单完成
                         order['status'] = 'completed'
                         completed_orders.append(order)
 
                         # 完成服务
-                        dest_grid = order.get('destination_grid', vehicle['current_grid'])
+                        dest_grid = order.get('dest_grid_index', order.get('destination_grid', vehicle['current_grid']))
                         self.complete_service(vehicle_id, dest_grid, current_time)
 
                 except Exception as e:
                     # 发生错误时，也完成服务
                     if vehicle.get('assigned_order'):
-                        dest_grid = vehicle['assigned_order'].get('destination_grid', vehicle['current_grid'])
+                        dest_grid = vehicle['assigned_order'].get('dest_grid_index', vehicle['assigned_order'].get('destination_grid', vehicle['current_grid']))
                         self.complete_service(vehicle_id, dest_grid, current_time)
 
         return completed_orders, cancelled_orders
@@ -497,19 +506,27 @@ class RewardCalculator:
         self.waiting_times.extend(step_info.get('waiting_times', []))
         self.total_revenue += step_info.get('revenue', 0.0)
 
-    def get_metrics(self):
-        """获取指标"""
-        total_p = self.completed_orders + self.cancelled_orders
-        total_orders = self.matched_orders + self.cancelled_orders
+    def get_metrics(self, total_orders_generated=None):
+        """获取指标
+
+        Args:
+            total_orders_generated: 总生成订单数（从外部传入）
+        """
+        # 总处理订单数 = 完成 + 取消
+        total_processed = self.completed_orders + self.cancelled_orders
+
+        # 如果有总生成数，用于计算匹配率
+        if total_orders_generated is None:
+            total_orders_generated = self.matched_orders + self.cancelled_orders
 
         metrics = {
             'matched_orders': self.matched_orders,
             'completed_orders': self.completed_orders,
             'cancelled_orders': self.cancelled_orders,
             'total_revenue': self.total_revenue,
-            'match_rate': self.matched_orders / total_orders if total_orders > 0 else 0.0,
-            'completion_rate': self.completed_orders / total_p if total_p > 0 else 0.0,
-            'cancel_rate': self.cancelled_orders / total_p if total_p > 0 else 0.0,
+            'match_rate': self.matched_orders / total_orders_generated if total_orders_generated > 0 else 0.0,
+            'completion_rate': self.completed_orders / total_processed if total_processed > 0 else 0.0,
+            'cancel_rate': self.cancelled_orders / total_processed if total_processed > 0 else 0.0,
         }
 
         if self.waiting_times:
@@ -667,9 +684,9 @@ class BaselineEnvironment:
 
             self.episode_stats['total_revenue'] += step_info['revenue']
 
-            # 4. 处理超时订单
+            # 4. 处理超时订单（匹配前取消）
             cancelled = self._cancel_timeout_orders()
-            step_info['cancelled_orders'] = cancelled
+            step_info['cancelled_orders'] += cancelled  # 累加，不要覆盖
             self.episode_stats['total_orders_cancelled'] += cancelled
 
             # 5. 执行调度策略
@@ -724,7 +741,6 @@ class BaselineEnvironment:
 
                     if wait_time_sec > self.config.MAX_WAITING_TIME:
                         order['status'] = 'cancelled'
-                        self.episode_stats['total_orders_cancelled'] += 1
                         cancelled_count += 1
                     else:
                         still_pending.append(order)
@@ -832,7 +848,9 @@ class BaselineEnvironment:
 
     def get_episode_summary(self):
         """获取 Episode 总结"""
-        metrics = self.reward_calculator.get_metrics()
+        # 传入总生成订单数，以便正确计算匹配率
+        total_generated = self.episode_stats.get('total_orders_generated', 0)
+        metrics = self.reward_calculator.get_metrics(total_orders_generated=total_generated)
         waiting_stats = {
             'avg_waiting_time': metrics.get('avg_waiting_time', 0.0),
             'max_waiting_time': metrics.get('max_waiting_time', 0.0),

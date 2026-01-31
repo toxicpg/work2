@@ -191,23 +191,34 @@ def run_last7_days_random_walk(config, env_data):
                 break
             daily_infos.append(info.get('step_info', {}))
             ticks += 1
+        # 正确区分matched和completed
         total_matched = sum(si.get('matched_orders', 0) for si in daily_infos)
+        total_completed = sum(si.get('completed_orders', 0) for si in daily_infos)  # 真正完成的
         total_cancelled = sum(si.get('cancelled_orders', 0) for si in daily_infos)
         all_waiting = [wt for si in daily_infos for wt in si.get('waiting_times', [])]
         total_revenue = sum(si.get('revenue', 0.0) for si in daily_infos)
         total_dispatches = sum(si.get('dispatch_total', 0) for si in daily_infos)
         total_new_orders = sum(si.get('new_orders', 0) for si in daily_infos)
-        total_processed = total_matched + total_cancelled
-        completion_rate = (total_matched / total_processed) if total_processed > 0 else 0.0
+
+        # 匹配率：匹配数 / (匹配 + 取消)
+        total_orders = total_matched + total_cancelled
+        match_rate = (total_matched / total_orders) if total_orders > 0 else 0.0
+
+        # 完成率：完成数 / (完成 + 取消)
+        total_processed = total_completed + total_cancelled
+        completion_rate = (total_completed / total_processed) if total_processed > 0 else 0.0
         cancel_rate = (total_cancelled / total_processed) if total_processed > 0 else 0.0
+
         avg_waiting_time = (float(np.mean(all_waiting)) if all_waiting else 0.0)
         daily_results.append({
             'day_index': i,
             'actual_day': day_index,
             'total_revenue': round(total_revenue, 2),
-            'completed_orders': total_matched,
+            'matched_orders': total_matched,  # 匹配的订单数
+            'completed_orders': total_completed,  # 完成的订单数
             'cancelled_orders': total_cancelled,
-            'completion_rate': round(completion_rate, 4),
+            'match_rate': round(match_rate, 4),  # 匹配率
+            'completion_rate': round(completion_rate, 4),  # 完成率
             'cancel_rate': round(cancel_rate, 4),
             'avg_waiting_time': round(avg_waiting_time, 1),
             'total_dispatches': total_dispatches,

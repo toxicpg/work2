@@ -512,15 +512,21 @@ class RewardCalculator:
         
         return reward
 
-    def get_metrics(self, calculate_total=False):
+    def get_metrics(self, calculate_total=False, total_orders_generated=None):
         total_p = self.completed_orders + self.cancelled_orders
+
+        # 修正：匹配率应该是 匹配数 / 总生成订单数
+        if total_orders_generated is None:
+            # Fallback：如果没有传入总订单数，用 matched + cancelled 作为分母
+            total_orders_generated = self.matched_orders_total + self.cancelled_orders
+
         metrics = {'completed_orders': self.completed_orders, 'cancelled_orders': self.cancelled_orders,
                    'total_revenue': self.total_revenue,
                    'completion_rate': self.completed_orders / total_p if total_p > 0 else 0.0,
                    'cancel_rate': self.cancelled_orders / total_p if total_p > 0 else 0.0,
                    'matched_orders_total': self.matched_orders_total,
-                   'match_rate': self.matched_orders_total / (self.matched_orders_total + self.cancelled_orders)
-                   if (self.matched_orders_total + self.cancelled_orders) > 0 else 0.0}
+                   'match_rate': self.matched_orders_total / total_orders_generated
+                   if total_orders_generated > 0 else 0.0}
         if self.waiting_times:
             metrics.update(
                 {'avg_waiting_time': np.mean(self.waiting_times), 'max_waiting_time': np.max(self.waiting_times),
@@ -1158,7 +1164,9 @@ class RideHailingEnvironment:
     # =====================
 
     def get_episode_summary(self):
-        metrics = self.reward_calculator.get_metrics()
+        # 获取总生成订单数，用于计算正确的匹配率
+        total_gen = self.episode_stats.get('total_orders_generated', 0)
+        metrics = self.reward_calculator.get_metrics(total_orders_generated=total_gen)
         waiting_stats = {k: metrics.get(k, 0.0) for k in
                          ['avg_waiting_time', 'max_waiting_time', 'min_waiting_time', 'std_waiting_time']}
         waiting_stats['count'] = len(getattr(self.reward_calculator, 'waiting_times', []))
@@ -1170,7 +1178,6 @@ class RideHailingEnvironment:
                              ('dispatching_rate', 'dispatching')]})
         else:
             metrics.update({k: 0.0 for k in ['vehicle_utilization', 'idle_rate', 'dispatching_rate']})
-        total_gen = self.episode_stats.get('total_orders_generated', 0);
         processed = metrics.get('completed_orders', 0) + metrics.get('cancelled_orders', 0)
         metrics['processing_rate'] = processed / total_gen if total_gen > 0 else 0.0;
         metrics['total_revenue'] = self.episode_stats.get('total_revenue', 0.0)
