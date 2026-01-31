@@ -93,12 +93,26 @@ class OrderGenerator:
         new_orders = [o.copy() for o in orders_in_slice]
         for o in new_orders:
             o['status'] = 'pending'
-            # 确保timestamp存在且格式正确
+            # 确保timestamp存在且格式正确，并且有时区信息
             if 'timestamp' not in o and 'departure_time' in o:
                 try:
-                    o['timestamp'] = pd.to_datetime(o['departure_time'], unit='s' if o['departure_time'] < 1e10 else 'ms')
-                except:
+                    # 转换Unix时间戳并确保有时区
+                    if o['departure_time'] < 1e10:
+                        ts = pd.to_datetime(o['departure_time'], unit='s')
+                    else:
+                        ts = pd.to_datetime(o['departure_time'], unit='ms')
+
+                    # 如果没有时区，添加Asia/Shanghai时区
+                    if ts.tzinfo is None:
+                        ts = ts.tz_localize('UTC').tz_convert('Asia/Shanghai')
+                    o['timestamp'] = ts
+                except Exception as e:
+                    print(f"警告: 订单时间戳转换失败: {e}")
                     pass
+            elif 'timestamp' in o:
+                # 确保已有的timestamp也有时区
+                if isinstance(o['timestamp'], pd.Timestamp) and o['timestamp'].tzinfo is None:
+                    o['timestamp'] = o['timestamp'].tz_localize('Asia/Shanghai')
         return new_orders
 
     def get_day_count(self):
@@ -582,6 +596,10 @@ class BaselineEnvironment:
             self.simulation_time = pd.Timestamp.now().tz_localize('UTC').tz_convert('Asia/Shanghai')
 
         self.current_time = self.simulation_time
+
+        # 确保 current_time 始终有时区信息
+        if self.current_time.tzinfo is None:
+            self.current_time = self.current_time.tz_localize('Asia/Shanghai')
         self.episode_start_day = 0
         self.current_day = 0
         self.current_time_slice = 0
@@ -617,6 +635,10 @@ class BaselineEnvironment:
             self.simulation_time = self.simulation_time.tz_localize('Asia/Shanghai')
 
         self.current_time = self.simulation_time
+
+        # 双重保险：确保 current_time 始终有时区
+        if self.current_time.tzinfo is None:
+            self.current_time = self.current_time.tz_localize('Asia/Shanghai')
         self.pending_orders.clear()
         self.event_queue.clear()
         self.buffered_orders.clear()
