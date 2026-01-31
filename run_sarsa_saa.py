@@ -79,8 +79,8 @@ def main():
     try:
         run_sarsa_saa_simulation(
             config=config,
-            start_day_offset=args.start_day,
-            all_orders=all_orders,
+            num_episodes=args.start_day,
+            env_data=all_orders,
             num_rounds=args.rounds
         )
 
