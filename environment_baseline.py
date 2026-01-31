@@ -741,13 +741,23 @@ class BaselineEnvironment:
             self.episode_stats['total_dispatches'] += step_info['dispatch_success']
 
             # 6. 更新时间
-            self.current_time_slice += 1
-            if self.current_time_slice >= self.config.NUM_TIME_SLICES:
-                self.current_time_slice = 0
-                self.current_day += 1
-
             self.simulation_time += pd.Timedelta(seconds=self.config.TICK_DURATION_SEC)
             self.current_time = self.simulation_time
+
+            # 根据实际时间计算当前的 time_slice 和 day
+            if hasattr(self.order_generator, 'time_range') and self.order_generator.time_range[0] != pd.Timestamp.min:
+                base_time = self.order_generator.time_range[0].normalize()
+            else:
+                base_time = pd.Timestamp(self.config.DATA_START_DATE, tz='Asia/Shanghai').normalize()
+
+            # 计算当前是第几天
+            days_elapsed = (self.current_time.normalize() - base_time).days
+            self.current_day = self.episode_start_day + days_elapsed
+
+            # 计算当前是第几个 time_slice（根据当前时刻的分钟数）
+            minutes_from_midnight = self.current_time.hour * 60 + self.current_time.minute
+            self.current_time_slice = min(minutes_from_midnight // self.config.MACRO_STATISTICS_STEP_MINUTES,
+                                         self.config.NUM_TIME_SLICES - 1)
 
             # 7. 检查是否完成
             done = self.episode_step >= self.config.MAX_TICKS_PER_EPISODE
