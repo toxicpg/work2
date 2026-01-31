@@ -682,6 +682,9 @@ class BaselineEnvironment:
 
             # 4. 生成本tick的新订单（与主实验一致：在匹配之后生成）
             new_orders = self._load_orders_for_tick()
+            # 为每个新订单添加generated_at字段（与主实验一致）
+            for order in new_orders:
+                order['generated_at'] = self.simulation_time
             self.pending_orders.extend(new_orders)
             step_info['new_orders'] = len(new_orders)
             self.episode_stats['total_orders_generated'] += len(new_orders)
@@ -730,23 +733,32 @@ class BaselineEnvironment:
             return {}, 0.0, True, {}
 
     def _cancel_timeout_orders(self):
-        """取消超时订单"""
+        """取消超时订单（与主实验一致：使用generated_at判断）"""
         cancelled_count = 0
         still_pending = []
 
+        # 计算cutoff时间
+        try:
+            cutoff_time = self.current_time - pd.Timedelta(seconds=self.config.MAX_WAITING_TIME)
+        except OverflowError:
+            cutoff_time = pd.Timestamp.min
+            if self.current_time.tzinfo is not None:
+                cutoff_time = cutoff_time.tz_localize(self.current_time.tzinfo)
+
         for order in self.pending_orders:
-            if 'timestamp' in order:
+            gen_time = order.get('generated_at')
+            if isinstance(gen_time, pd.Timestamp):
                 try:
-                    gen_time = order['timestamp']
-                    if isinstance(gen_time, str):
-                        gen_time = pd.to_datetime(gen_time)
+                    # 确保时区一致
+                    if gen_time.tzinfo is None and cutoff_time.tzinfo is not None:
+                        gen_time = gen_time.tz_localize(cutoff_time.tzinfo)
+                    elif gen_time.tzinfo is not None and cutoff_time.tzinfo is None:
+                        cutoff_time = cutoff_time.tz_localize(gen_time.tzinfo)
+                    elif gen_time.tzinfo != cutoff_time.tzinfo:
+                        gen_time = gen_time.tz_convert(cutoff_time.tzinfo)
 
-                    if gen_time.tzinfo is None and self.current_time.tzinfo is not None:
-                        gen_time = gen_time.tz_localize(self.current_time.tzinfo)
-
-                    wait_time_sec = (self.current_time - gen_time).total_seconds()
-
-                    if wait_time_sec > self.config.MAX_WAITING_TIME:
+                    # 如果生成时间 <= cutoff时间，说明等待时间过长，取消
+                    if gen_time <= cutoff_time:
                         order['status'] = 'cancelled'
                         cancelled_count += 1
                     else:
@@ -754,6 +766,7 @@ class BaselineEnvironment:
                 except Exception:
                     still_pending.append(order)
             else:
+                # 没有generated_at的订单保留（不会超时）
                 still_pending.append(order)
 
         self.pending_orders = deque(still_pending)
