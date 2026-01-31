@@ -3,11 +3,12 @@
 统计高峰期每小时的订单数，计算车辆配置比例
 用于确定 1800/2000/2200 车辆分别对应少车/正好/盈余的情况
 """
-import sys
 import os
-import pandas as pd
-import numpy as np
+import sys
+
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
 # 添加项目根目录到路径
 current_dir = os.path.dirname(os.path.abspath(__file__))

@@ -3,12 +3,12 @@
 运行1800、2000、2200三种车辆配置，每种配置运行所有5个baseline方法
 """
 
+import json
 import os
-import sys
 import subprocess
+import sys
 import time
 from datetime import datetime
-import json
 
 # 确保在项目根目录
 project_root = os.path.dirname(os.path.abspath(__file__))

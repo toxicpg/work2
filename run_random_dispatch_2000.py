@@ -1,5 +1,7 @@
 """Random Dispatch Baseline - 2000辆车"""
-import sys, os
+import os
+import sys
+
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.getcwd())
 from config import Config

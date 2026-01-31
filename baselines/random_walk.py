@@ -4,14 +4,15 @@ Benchmark 1: Random Walk Dispatching Policy Simulation
 当车辆空闲时间达到阈值时，随机选择移动到相邻网格（N, S, E, W）或停留在原地。
 """
 
-import sys
 import os
-import numpy as np
-import torch # 导入 torch 以设置种子
 import random
-from tqdm import tqdm
+import sys
 from datetime import datetime
-import pandas as pd # 用于保存结果
+
+import numpy as np
+import pandas as pd  # 用于保存结果
+import torch  # 导入 torch 以设置种子
+from tqdm import tqdm
 
 # --- 调整 Python 路径并更改工作目录 ---
 # 获取当前脚本 (random_walk.py) 所在的目录 (baselines)

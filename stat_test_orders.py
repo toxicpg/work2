@@ -2,10 +2,10 @@
 """
 统计测试集（最后7天）每天的订单数量
 """
-import sys
 import os
+import sys
+
 import pandas as pd
-import numpy as np
 
 # 添加项目根目录到路径
 current_dir = os.path.dirname(os.path.abspath(__file__))

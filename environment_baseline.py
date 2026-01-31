@@ -10,15 +10,14 @@
 基于 environment_back.py (V5.4) 简化而来，去除了 DRL 相关的复杂逻辑
 """
 
+import random
+import time
+import traceback
+from collections import deque, defaultdict
+
 import numpy as np
 import pandas as pd
 import torch
-from collections import deque, defaultdict
-import json
-import os
-import random
-import traceback
-import time
 
 
 # ========== OrderGenerator Class ==========
@@ -452,12 +451,12 @@ class VehicleManager:
 
 # ========== OrderMatcher Class ==========
 class OrderMatcher:
-    """订单匹配器 - 使用与主环境相同的匹配半径"""
+    """订单匹配器 - 使用K-NN搜索（与主环境一致）"""
     def __init__(self, config):
         self.config = config
-        # 使用与主环境相同的搜索半径（默认10）
-        self.search_radius = getattr(config, 'MATCHER_SEARCH_RADIUS', 10)
-        print(f"  OrderMatcher 初始化 (半径: {self.search_radius})")
+        # 使用K-NN搜索，而不是半径搜索
+        self.k_to_search = getattr(config, 'MATCHER_KNN_K', 30)
+        print(f"  OrderMatcher 初始化 (K-NN, k={self.k_to_search})")
 
     def match_orders(self, pending_orders, vehicle_manager, current_time):
         """匹配订单和车辆"""
@@ -491,18 +490,25 @@ class OrderMatcher:
             best_match_vehicle_id = None
             min_travel_time = float('inf')
 
+            # 使用K-NN：计算所有车辆的距离，选择最近的K个
             vehicle_items = list(available_idle_vehicles.items())
-            random.shuffle(vehicle_items)
+            vehicle_distances = []
 
             for v_id, v_data in vehicle_items:
                 v_row, v_col = divmod(v_data['grid'], grid_cols)
-                dist = abs(v_row - order_row) + abs(v_col - order_col)
+                manhattan_dist = abs(v_row - order_row) + abs(v_col - order_col)
+                vehicle_distances.append((manhattan_dist, v_id, v_data))
 
-                if dist <= self.search_radius:
-                    travel_time = vehicle_manager._calculate_travel_time(v_data['grid'], order_grid)
-                    if travel_time < min_travel_time:
-                        min_travel_time = travel_time
-                        best_match_vehicle_id = v_id
+            # 按距离排序，只考虑最近的K个
+            vehicle_distances.sort(key=lambda x: x[0])
+            k_nearest = vehicle_distances[:min(self.k_to_search, len(vehicle_distances))]
+
+            # 在K个最近的车辆中选择旅行时间最短的
+            for _, v_id, v_data in k_nearest:
+                travel_time = vehicle_manager._calculate_travel_time(v_data['grid'], order_grid)
+                if travel_time < min_travel_time:
+                    min_travel_time = travel_time
+                    best_match_vehicle_id = v_id
 
             if best_match_vehicle_id is not None:
                 # 注意：这里不直接assign，而是返回匹配结果，在step()中统一assign

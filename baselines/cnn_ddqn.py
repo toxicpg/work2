@@ -3,15 +3,16 @@ CNN-DDQN Baseline Training Script
 使用卷积神经网络（CNN）+ Dueling DQN 进行网约车调度训练和评估
 """
 
-import sys
 import os
-import numpy as np
-import torch
 import random
-from tqdm import tqdm
-from datetime import datetime
-import pandas as pd
+import sys
 from collections import deque
+from datetime import datetime
+
+import numpy as np
+import pandas as pd
+import torch
+from tqdm import tqdm
 
 # 调整路径
 current_dir = os.path.dirname(os.path.abspath(__file__))

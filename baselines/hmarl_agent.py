@@ -10,12 +10,13 @@ Based on: Si et al. - Hierarchical Multi-Agent RL for Intercity Ridepooling
 5. Intrinsic Reward: 内部奖励机制，鼓励Worker完成Manager的子目标
 """
 
+import random
+from collections import deque
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-from collections import deque
-import random
 
 try:
     from pulp import LpProblem, LpMaximize, LpVariable, lpSum, LpStatus, PULP_CBC_CMD

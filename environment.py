@@ -6,17 +6,16 @@
 9. (V5.3) 在 _process_events 中再次加强 vehicle 变量的检查逻辑。
 """
 
-import numpy as np
-import pandas as pd
-import torch
-import time
-import torch.nn.functional as F
-from collections import deque, defaultdict
 import json
 import os
 import random
-import bisect
+import time
 import traceback
+from collections import deque, defaultdict
+
+import numpy as np
+import pandas as pd
+import torch
 
 # ===== ★★★ V5.5 K-D Tree 优化：添加导入 ★★★ =====
 try:

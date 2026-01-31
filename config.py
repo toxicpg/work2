@@ -1,7 +1,8 @@
 # config.py
-import torch
-import os
 import json
+import os
+
+import torch
 
 
 class Config:

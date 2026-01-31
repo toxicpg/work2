@@ -2,8 +2,9 @@
 Random Walk Baseline - 1800辆车
 直接运行测试，无需训练
 """
-import sys
 import os
+import sys
+
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.getcwd())
 
