@@ -139,7 +139,7 @@ class Config:
     AVG_SPEED_KMH = 40
     MAX_WAITING_TIME = 300  # 订单等待 600 秒 (10分钟) 后取消
     MATCHER_SEARCH_RADIUS = 10      # 订单匹配半径 (V5.5 新增)
-    MATCHER_KNN_K = 30
+    MATCHER_KNN_K = 10  # 与主实验一致
     MATCHER_TRAVEL_TIME_WEIGHT = 1.5
     MATCHER_EUCLIDEAN_WEIGHT = 0.1
 

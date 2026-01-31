@@ -317,12 +317,8 @@ class VehicleManager:
         return distribution
 
     def update_serving_vehicles(self, current_time):
-        """更新正在服务的车辆状态，检查完成和超时取消
-
-        关键：乘客从下单(generated_at)开始等待，如果超过MAX_WAITING_TIME还没完成服务，就取消
-        """
+        """更新正在服务的车辆状态（与主实验一致：只检查完成，不检查超时）"""
         completed_orders = []
-        cancelled_orders = []
 
         for vehicle_id, vehicle in self.vehicles.items():
             if vehicle.get('status') != 'serving':
@@ -333,29 +329,6 @@ class VehicleManager:
                 continue
 
             try:
-                # 检查订单是否超时（从generated_at开始计算）
-                gen_time = order.get('generated_at')
-                if isinstance(gen_time, pd.Timestamp):
-                    try:
-                        if gen_time.tzinfo is None and current_time.tzinfo is not None:
-                            gen_time = gen_time.tz_localize(current_time.tzinfo)
-
-                        wait_time_sec = (current_time - gen_time).total_seconds()
-
-                        # 如果等待超过MAX_WAITING_TIME，取消订单
-                        if wait_time_sec > self.config.MAX_WAITING_TIME:
-                            order['status'] = 'cancelled'
-                            cancelled_orders.append(order)
-
-                            # 车辆恢复空闲
-                            vehicle['status'] = 'idle'
-                            vehicle['assigned_order'] = None
-                            vehicle['order_start_time'] = None
-                            vehicle['idle_since'] = current_time
-                            continue
-                    except Exception:
-                        pass
-
                 # 检查是否完成（接驾 + 送达）
                 elapsed_seconds = (current_time - vehicle['order_start_time']).total_seconds()
                 elapsed_minutes = elapsed_seconds / 60.0
@@ -374,7 +347,7 @@ class VehicleManager:
                     dest_grid = vehicle['assigned_order'].get('dest_grid_index', vehicle['current_grid'])
                     self.complete_service(vehicle_id, dest_grid, current_time)
 
-        return completed_orders, cancelled_orders
+        return completed_orders, []  # 返回空的cancelled列表
 
 
 # ========== OrderMatcher Class ==========
@@ -442,44 +415,21 @@ class OrderMatcher:
                     min_travel_time = travel_time
                     best_match_vehicle_id = v_id
 
-            # ★★★ 关键修复：检查接驾时间是否在MAX_WAITING_TIME内 ★★★
+            # ★★★ 与主实验一致：匹配时不检查接驾时间，只要有空闲车就匹配 ★★★
             if best_match_vehicle_id is not None:
-                # 计算订单已等待时间
-                gen_time = order.get('generated_at')
-                can_match = True
-
-                if isinstance(gen_time, pd.Timestamp):
-                    try:
-                        if gen_time.tzinfo is None and current_time.tzinfo is not None:
-                            gen_time = gen_time.tz_localize(current_time.tzinfo)
-
-                        already_waited_sec = (current_time - gen_time).total_seconds()
-                        pickup_time_sec = min_travel_time * 60.0  # 转换为秒
-                        total_wait_sec = already_waited_sec + pickup_time_sec
-
-                        # 如果预计总等待时间超过MAX_WAITING_TIME，不匹配
-                        if total_wait_sec > vehicle_manager.config.MAX_WAITING_TIME:
-                            can_match = False
-                    except Exception:
-                        pass  # 如果计算失败，允许匹配
-
-                if can_match:
-                    # 立即分配订单
-                    assign_success = vehicle_manager.assign_order(
-                        best_match_vehicle_id, order, current_time, min_travel_time
-                    )
-                    if assign_success:
-                        matches.append({
-                            'order': order,
-                            'vehicle_id': best_match_vehicle_id,
-                            'distance': min_travel_time
-                        })
-                        # 从可用车辆集合中移除
-                        available_vehicle_ids.remove(best_match_vehicle_id)
-                    else:
-                        still_unmatched.append(order)
+                # 立即分配订单
+                assign_success = vehicle_manager.assign_order(
+                    best_match_vehicle_id, order, current_time, min_travel_time
+                )
+                if assign_success:
+                    matches.append({
+                        'order': order,
+                        'vehicle_id': best_match_vehicle_id,
+                        'distance': min_travel_time
+                    })
+                    # 从可用车辆集合中移除
+                    available_vehicle_ids.remove(best_match_vehicle_id)
                 else:
-                    # 接驾时间太长，不匹配，留到下一轮
                     still_unmatched.append(order)
             else:
                 still_unmatched.append(order)
