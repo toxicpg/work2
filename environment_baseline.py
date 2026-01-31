@@ -387,19 +387,27 @@ class VehicleManager:
                             gen_time = order['timestamp']
                             if isinstance(gen_time, str):
                                 gen_time = pd.to_datetime(gen_time)
-                            if gen_time.tzinfo is None and current_time.tzinfo is not None:
-                                gen_time = gen_time.tz_localize(current_time.tzinfo)
-                            elif gen_time.tzinfo is not None and current_time.tzinfo is None:
-                                # current_time 没有时区，给它加上时区
+
+                            # 统一时区处理
+                            if gen_time.tzinfo is None:
+                                gen_time = gen_time.tz_localize('Asia/Shanghai')
+                            if current_time.tzinfo is None:
                                 current_time = current_time.tz_localize('Asia/Shanghai')
 
                             # 等待时间 = 从生成到客人上车（不包括送客时间）
-                            wait_time_sec = (current_time - gen_time).total_seconds()
+                            # 注意：应该使用 order_start_time（匹配时刻）+ elapsed_minutes，而不是 current_time
+                            actual_pickup_time = vehicle['order_start_time'] + pd.Timedelta(minutes=elapsed_minutes)
+                            wait_time_sec = (actual_pickup_time - gen_time).total_seconds()
 
-                            # 防止负数（可能因为时区问题）
+                            # 防止负数（如果订单时间戳晚于匹配时间，说明数据有问题）
                             if wait_time_sec < 0:
-                                print(f"警告: 等待时间为负数 ({wait_time_sec:.1f}秒), gen_time={gen_time}, current_time={current_time}")
-                                wait_time_sec = 0.0
+                                print(f"警告: 等待时间为负数 ({wait_time_sec:.1f}秒)")
+                                print(f"  订单生成时间: {gen_time}")
+                                print(f"  匹配开始时间: {vehicle['order_start_time']}")
+                                print(f"  实际接驾时间: {actual_pickup_time}")
+                                print(f"  当前仿真时间: {current_time}")
+                                # 使用从匹配到接驾完成的时间作为等待时间
+                                wait_time_sec = elapsed_seconds
 
                             order['actual_wait_time'] = wait_time_sec
 
