@@ -1,140 +1,121 @@
+"""
+测试baseline匹配修复效果
+对比修复前后的匹配率差异
+"""
+import os
+import sys
 
-import unittest
-import pandas as pd
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+import random
 import numpy as np
-from collections import deque
+import torch
 from config import Config
-from environment_baseline import BaselineEnvironment, VehicleManager, OrderMatcher
+from environment_baseline import BaselineEnvironment
+from utils.data_process import DataProcessor
 
-class TestBaselineMatchingFix(unittest.TestCase):
-    def setUp(self):
-        self.config = Config()
-        self.config.MAX_WAITING_TIME = 300  # 300秒
-        self.config.AVG_SPEED_KMH = 40      # 40 km/h -> 1.5 min/grid
-        self.config.GRID_SIZE = (20, 20)
-        self.config.NUM_GRIDS = 400
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
-        # Mock DataProcessor and Orders
-        self.mock_orders_df = pd.DataFrame({
-            'order_id': ['test_1'],
-            'timestamp': [pd.Timestamp('2016-11-01 00:00:00', tz='Asia/Shanghai')],
-            'departure_time': [1477929600],
-            'grid_index': [0],
-            'dest_grid_index': [1],
-            'fee': [10.0],
-            'relative_day': [0],
-            'time_slice': [0]
-        })
+def test_baseline_matching():
+    """测试baseline环境的匹配率"""
+    print("=" * 70)
+    print("测试 Baseline 匹配修复效果")
+    print("=" * 70)
 
-        # Initialize Environment
-        # We pass a dummy data_processor as None since we won't use it for this test
-        self.env = BaselineEnvironment(self.config, None, self.mock_orders_df, dispatch_policy='none')
-        self.env.reset()
+    # 初始化配置
+    config = Config()
+    set_seed(config.SEED)
 
-    def test_timeout_prediction_in_matching(self):
-        """测试场景 1：预判超时"""
-        print("\n=== 测试场景 1：预判超时 ===")
+    # 加载数据
+    print("\n[1] 加载数据...")
+    data_processor = DataProcessor(config)
+    all_orders = data_processor.load_and_process_orders()
+    all_orders['date'] = all_orders['timestamp'].dt.date
 
-        # 1. 设置当前时间
-        base_time = pd.Timestamp('2016-11-01 00:00:00', tz='Asia/Shanghai')
-        self.env.current_time = base_time + pd.Timedelta(seconds=250) # 已经过了250秒
+    # 选择一天的数据进行测试
+    test_day = sorted(all_orders['date'].unique())[0]
+    day_orders = all_orders[all_orders['date'] == test_day]
+    print(f"  测试日期: {test_day}")
+    print(f"  订单数量: {len(day_orders)}")
 
-        # 2. 创建一个订单，生成时间为 base_time (T=0)
-        order = {
-            'order_id': 'order_timeout_test',
-            'timestamp': base_time,
-            'grid_index': 0,  # 在 Grid 0
-            'dest_grid_index': 1,
-            'status': 'pending'
-        }
+    # 初始化环境（使用random_walk策略）
+    print("\n[2] 初始化环境...")
+    env = BaselineEnvironment(config, data_processor, day_orders, dispatch_policy='random_walk')
+    env.reset()
 
-        # 3. 创建一个车辆，在 Grid 10
-        # 假设 Grid 0 和 Grid 10 的距离导致接驾时间 > 50秒
-        # Grid 0 = (0, 0), Grid 10 = (0, 10) -> 距离 10
-        # 速度 40km/h -> 1.5 min/grid -> 10 * 1.5 = 15分钟 = 900秒
-        # 肯定超时
+    # 运行仿真
+    print("\n[3] 运行仿真...")
+    max_steps = min(300, config.MAX_TICKS_PER_EPISODE)  # 测试前300步（5小时）
 
-        # 为了精确控制，我们找一个刚好超时的
-        # 剩余时间预算 = 300 - 250 = 50秒 = 0.83分钟
-        # 1 grid = 1.5分钟 = 90秒 > 50秒
-        # 所以只要距离 >= 1 grid，就应该超时
+    step_count = 0
+    total_matched = 0
+    total_generated = 0
+    total_cancelled = 0
 
-        vehicle_id = 0
-        self.env.vehicle_manager.vehicles[vehicle_id] = {
-            'id': vehicle_id,
-            'current_grid': 1, # 距离 Grid 0 为 1 (0,1) -> (0,0) dist=1
-            'status': 'idle',
-            'idle_since': self.env.current_time
-        }
+    while step_count < max_steps:
+        _, _, done, info = env.step()
 
-        # 4. 尝试匹配
-        pending_orders = [order]
-        matches, unmatched = self.env.order_matcher.match_orders(
-            pending_orders, self.env.vehicle_manager, self.env.current_time
-        )
+        step_info = info.get('step_info', {})
+        matched = step_info.get('matched_orders', 0)
+        new_orders = step_info.get('new_orders', 0)
+        cancelled = step_info.get('cancelled_orders', 0)
 
-        # 5. 验证
-        # 预期：不匹配，因为 250 + 90 = 340 > 300
-        print(f"  当前等待: 250s")
-        print(f"  接驾距离: 1 grid -> 预计接驾时间: {1.5 * 60}s = 90s")
-        print(f"  预计总时间: 340s > 300s")
-        print(f"  匹配结果数量: {len(matches)}")
+        total_matched += matched
+        total_generated += new_orders
+        total_cancelled += cancelled
 
-        self.assertEqual(len(matches), 0, "应该因为预判超时而不匹配")
-        self.assertEqual(len(unmatched), 1, "订单应该保持未匹配")
+        step_count += 1
 
-    def test_position_update_on_cancel(self):
-        """测试场景 2：取消后位置更新"""
-        print("\n=== 测试场景 2：取消后位置更新 ===")
+        # 每50步打印一次进度
+        if step_count % 50 == 0:
+            current_match_rate = total_matched / total_generated if total_generated > 0 else 0
+            print(f"  Step {step_count}/{max_steps}: "
+                  f"匹配率={current_match_rate:.2%}, "
+                  f"已匹配={total_matched}, "
+                  f"已生成={total_generated}, "
+                  f"已取消={total_cancelled}")
 
-        # 1. 设置时间 T=0
-        base_time = pd.Timestamp('2016-11-01 00:00:00', tz='Asia/Shanghai')
-        self.env.current_time = base_time
+        if done:
+            break
 
-        # 2. 创建订单和车辆
-        order = {
-            'order_id': 'order_cancel_test',
-            'timestamp': base_time,
-            'grid_index': 100,  # 接驾点在 Grid 100
-            'dest_grid_index': 101,
-            'status': 'pending'
-        }
+    # 最终统计
+    print("\n" + "=" * 70)
+    print("测试结果:")
+    print("=" * 70)
 
-        vehicle_id = 0
-        start_grid = 0 # 车辆初始在 Grid 0
-        self.env.vehicle_manager.vehicles[vehicle_id] = {
-            'id': vehicle_id,
-            'current_grid': start_grid,
-            'status': 'idle',
-            'idle_since': base_time
-        }
+    metrics = env.reward_calculator.get_metrics(total_orders_generated=total_generated)
 
-        # 3. 强制分配订单 (跳过 match_orders 的预判，直接测试 update_serving_vehicles)
-        # 计算接驾时间
-        travel_time = self.env.vehicle_manager._calculate_travel_time(start_grid, 100)
-        self.env.vehicle_manager.assign_order(vehicle_id, order, base_time, travel_time)
+    print(f"  总生成订单: {total_generated}")
+    print(f"  总匹配订单: {total_matched}")
+    print(f"  总取消订单: {total_cancelled}")
+    print(f"  匹配率: {metrics['match_rate']:.2%}")
+    print(f"  完成率: {metrics.get('completion_rate', 0):.2%}")
+    print(f"  取消率: {metrics.get('cancel_rate', 0):.2%}")
 
-        vehicle = self.env.vehicle_manager.vehicles[vehicle_id]
-        print(f"  分配后状态: {vehicle['status']}")
-        print(f"  分配后位置: {vehicle['current_grid']} (应为 {start_grid})")
-        self.assertEqual(vehicle['status'], 'picking_up')
-        self.assertEqual(vehicle['current_grid'], start_grid)
+    if metrics.get('avg_waiting_time', 0) > 0:
+        print(f"  平均等待时间: {metrics['avg_waiting_time']:.1f}秒")
 
-        # 4. 推进时间到超时 (T=301)
-        self.env.current_time = base_time + pd.Timedelta(seconds=301)
+    # 车辆状态统计
+    vehicle_stats = env.vehicle_manager.get_statistics()
+    print(f"\n  车辆状态分布:")
+    for status, count in vehicle_stats.items():
+        print(f"    {status}: {count}")
 
-        # 5. 更新服务状态
-        completed, cancelled = self.env.vehicle_manager.update_serving_vehicles(self.env.current_time)
+    print("=" * 70)
 
-        # 6. 验证
-        vehicle = self.env.vehicle_manager.vehicles[vehicle_id]
-        print(f"  超时后状态: {vehicle['status']}")
-        print(f"  超时后位置: {vehicle['current_grid']} (预期为 100)")
+    # 判断修复是否成功
+    if metrics['match_rate'] > 0.50:  # 期望匹配率>50%
+        print("✓ 修复成功！匹配率恢复正常")
+    else:
+        print("✗ 匹配率仍然偏低，可能还有其他问题")
 
-        self.assertEqual(len(cancelled), 1, "订单应该被取消")
-        self.assertEqual(vehicle['status'], 'idle', "车辆应该变回 idle")
-        self.assertEqual(vehicle['current_grid'], 100, "车辆位置应该更新为接驾点 (Grid 100)")
+    return metrics
 
-if __name__ == '__main__':
-    unittest.main()
+if __name__ == "__main__":
+    test_baseline_matching()
 

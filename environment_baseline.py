@@ -220,46 +220,27 @@ class VehicleManager:
         except (ValueError, TypeError):
             return False
 
-    def assign_order(self, vehicle_id, order, current_time, pickup_time_minutes=0.0):
-        """分配订单给车辆
+    def assign_order(self, vehicle_id, order):
+        """分配订单给车辆（简化版，与主环境保持一致）
 
         Args:
             vehicle_id: 车辆ID
             order: 订单信息
-            current_time: 当前时间
-            pickup_time_minutes: 接驾时间（分钟），从匹配器返回的distance
         """
         if vehicle_id not in self.vehicles:
             return False
 
         vehicle = self.vehicles[vehicle_id]
+        if vehicle is None:  # 增加安全检查
+            return False
+
         if vehicle['status'] != 'idle':
             return False
 
-        # 计算接驾时间和行程时间
-        pickup_grid = order.get('grid_index', vehicle['current_grid'])
-        # 注意：订单数据中字段名是dest_grid_index，不是destination_grid
-        dest_grid = order.get('dest_grid_index', order.get('destination_grid', pickup_grid))
-
-        service_time_minutes = self._calculate_travel_time(pickup_grid, dest_grid)
-
-        # 车辆状态：先是去接客（picking_up），接到后才是送客（serving）
-        vehicle['status'] = 'picking_up'  # 接驾阶段
+        # 简化：直接进入 serving 状态，与主环境一致
+        vehicle['status'] = 'serving'
         vehicle['assigned_order'] = order
-        vehicle['order_start_time'] = current_time
-        vehicle['pickup_time_minutes'] = pickup_time_minutes  # 接驾时间
-        vehicle['service_time_minutes'] = service_time_minutes  # 行程时间
-        vehicle['pickup_complete_time'] = pickup_time_minutes  # 接驾完成时间点
-        vehicle['total_completion_time'] = pickup_time_minutes + service_time_minutes  # 总完成时间
         vehicle['idle_since'] = None
-
-        # 在订单上也记录匹配时间，用于后续计算等待时间
-        order['matched_time'] = current_time
-        order['status'] = 'matched'
-
-        # 记录订单生成时间（用于计算等待时间）
-        if 'timestamp' in order:
-            order['generated_time'] = order['timestamp']
 
         return True
 
@@ -330,131 +311,14 @@ class VehicleManager:
         return distribution
 
     def update_serving_vehicles(self, current_time):
-        """更新正在服务的车辆状态，返回完成的订单信息和取消的订单信息
+        """更新正在服务的车辆状态（简化版，与主环境保持一致）
 
-        车辆状态：
-        - picking_up: 接驾阶段（去接客人），可能超时取消
-        - serving: 送达阶段（客人已上车），不会取消
+        注意：此方法在 baseline 环境中不再处理订单完成，
+        而是通过 _schedule_order_completion 和事件队列来处理（与主环境一致）
         """
-        completed_orders = []
-        cancelled_orders = []
-
-        for vehicle_id, vehicle in self.vehicles.items():
-            status = vehicle.get('status')
-
-            # 处理接驾阶段的车辆
-            if status == 'picking_up' and vehicle.get('order_start_time') is not None:
-                try:
-                    order = vehicle.get('assigned_order')
-                    if not order:
-                        continue
-
-                    elapsed_seconds = (current_time - vehicle['order_start_time']).total_seconds()
-                    elapsed_minutes = elapsed_seconds / 60.0
-
-                    # 先检查是否超时取消（在接驾阶段可能取消）
-                    if 'timestamp' in order:
-                        gen_time = order['timestamp']
-                        if isinstance(gen_time, str):
-                            gen_time = pd.to_datetime(gen_time)
-                        if gen_time.tzinfo is None and current_time.tzinfo is not None:
-                            gen_time = gen_time.tz_localize(current_time.tzinfo)
-
-                        total_wait_time_sec = (current_time - gen_time).total_seconds()
-
-                        # 如果总等待时间超过最大等待时间，订单被取消（客人还没上车）
-                        if total_wait_time_sec > self.config.MAX_WAITING_TIME:
-                            order['status'] = 'cancelled'
-                            order['cancel_reason'] = 'timeout_while_picking_up'
-                            cancelled_orders.append(order)
-
-                            # 车辆位置更新到接驾点（模拟车辆已经行驶到了附近）
-                            # 这防止了车辆在热点区域“免费”尝试接单失败后仍保留在热点区域
-                            pickup_grid = order.get('grid_index', vehicle['current_grid'])
-                            try:
-                                vehicle['current_grid'] = int(pickup_grid)
-                            except (ValueError, TypeError):
-                                pass
-
-                            # 车辆恢复空闲状态
-                            vehicle['status'] = 'idle'
-                            vehicle['assigned_order'] = None
-                            vehicle['order_start_time'] = None
-                            vehicle['idle_since'] = current_time
-                            continue
-
-                    # 检查是否完成接驾（到达乘客位置）
-                    if elapsed_minutes >= vehicle.get('pickup_complete_time', 0):
-                        # 接驾完成，客人上车，进入送达阶段
-                        vehicle['status'] = 'serving'
-                        order['status'] = 'picked_up'
-
-                        # 记录客人上车时间，用于计算等待时间（等待时间 = 生成到上车）
-                        if 'timestamp' in order:
-                            gen_time = order['timestamp']
-                            if isinstance(gen_time, str):
-                                gen_time = pd.to_datetime(gen_time)
-
-                            # 统一时区处理
-                            if gen_time.tzinfo is None:
-                                gen_time = gen_time.tz_localize('Asia/Shanghai')
-                            if current_time.tzinfo is None:
-                                current_time = current_time.tz_localize('Asia/Shanghai')
-
-                            # 等待时间 = 从生成到客人上车（不包括送客时间）
-                            # 注意：应该使用 order_start_time（匹配时刻）+ elapsed_minutes，而不是 current_time
-                            actual_pickup_time = vehicle['order_start_time'] + pd.Timedelta(minutes=elapsed_minutes)
-                            wait_time_sec = (actual_pickup_time - gen_time).total_seconds()
-
-                            # 防止负数（如果订单时间戳晚于匹配时间，说明数据有问题）
-                            if wait_time_sec < 0:
-                                print(f"警告: 等待时间为负数 ({wait_time_sec:.1f}秒)")
-                                print(f"  订单生成时间: {gen_time}")
-                                print(f"  匹配开始时间: {vehicle['order_start_time']}")
-                                print(f"  实际接驾时间: {actual_pickup_time}")
-                                print(f"  当前仿真时间: {current_time}")
-                                # 使用从匹配到接驾完成的时间作为等待时间
-                                wait_time_sec = elapsed_seconds
-
-                            order['actual_wait_time'] = wait_time_sec
-
-                        # 注意：不要 continue，下面的 serving 逻辑会在下一个 tick 处理
-
-                except Exception as e:
-                    # 发生错误时，车辆恢复空闲
-                    vehicle['status'] = 'idle'
-                    vehicle['assigned_order'] = None
-                    vehicle['order_start_time'] = None
-                    vehicle['idle_since'] = current_time
-
-            # 处理送达阶段的车辆（客人已上车，不会取消）
-            elif status == 'serving' and vehicle.get('order_start_time') is not None:
-                try:
-                    order = vehicle.get('assigned_order')
-                    if not order:
-                        continue
-
-                    elapsed_seconds = (current_time - vehicle['order_start_time']).total_seconds()
-                    elapsed_minutes = elapsed_seconds / 60.0
-
-                    # 检查是否完成整个行程（接驾 + 送达）
-                    if elapsed_minutes >= vehicle.get('total_completion_time', 0):
-                        # 等待时间已经在picking_up阶段计算过了（客人上车时）
-                        # 这里只需标记订单完成
-                        order['status'] = 'completed'
-                        completed_orders.append(order)
-
-                        # 完成服务
-                        dest_grid = order.get('dest_grid_index', order.get('destination_grid', vehicle['current_grid']))
-                        self.complete_service(vehicle_id, dest_grid, current_time)
-
-                except Exception as e:
-                    # 发生错误时，也完成服务
-                    if vehicle.get('assigned_order'):
-                        dest_grid = vehicle['assigned_order'].get('dest_grid_index', vehicle['assigned_order'].get('destination_grid', vehicle['current_grid']))
-                        self.complete_service(vehicle_id, dest_grid, current_time)
-
-        return completed_orders, cancelled_orders
+        # 简化版：baseline 环境不需要复杂的 serving 状态更新
+        # 订单完成通过事件队列处理
+        return [], []
 
 
 # ========== OrderMatcher Class ==========
@@ -463,7 +327,6 @@ class OrderMatcher:
     def __init__(self, config):
         self.config = config
         # 使用K-NN搜索，与主实验保持一致
-        # 默认使用30，如果config中有定义则使用config中的值
         self.k_to_search = getattr(config, 'MATCHER_KNN_K', 30)
         print(f"  OrderMatcher 初始化 (K-NN搜索, k={self.k_to_search}, 匹配时立即assign)")
 
@@ -542,12 +405,10 @@ class OrderMatcher:
                     min_travel_time = travel_time
                     best_match_vehicle_id = v_id
 
-            # ★★★ 关键修复：在匹配时立即assign，确保车辆状态同步 ★★★
+            # ★★★ 在匹配时立即assign，确保车辆状态同步（与主环境一致）★★★
             if best_match_vehicle_id is not None:
-                # 立即分配订单（与主实验一致）
-                assign_success = vehicle_manager.assign_order(
-                    best_match_vehicle_id, order, current_time, min_travel_time
-                )
+                # 立即分配订单（简化版：只传 vehicle_id 和 order）
+                assign_success = vehicle_manager.assign_order(best_match_vehicle_id, order)
                 if assign_success:
                     matches.append({
                         'order': order,
@@ -716,11 +577,11 @@ class BaselineEnvironment:
         self.reward_calculator.reset()
 
     def step(self):
-        """执行一个时间步"""
+        """执行一个时间步（简化版，与主环境保持一致的流程）"""
         self.episode_step += 1
         step_info = {
             'matched_orders': 0,
-            'completed_orders': 0,  # 新增：完成的订单数
+            'completed_orders': 0,
             'cancelled_orders': 0,
             'waiting_times': [],
             'dispatch_success': 0,
@@ -730,71 +591,61 @@ class BaselineEnvironment:
         }
 
         try:
-            # 1. 更新车辆状态（dispatching车辆）
+            # 1. 处理到期的订单完成事件
+            self._process_order_completion_events(self.current_time, step_info)
+
+            # 2. 更新车辆状态（dispatching车辆）
             self.vehicle_manager.update_dispatching_vehicles(self.current_time)
 
-            # 1.5 更新服务中的车辆，检查订单完成和超时取消
-            completed_orders, serving_cancelled = self.vehicle_manager.update_serving_vehicles(self.current_time)
-            step_info['completed_orders'] = len(completed_orders)
-
-            # 记录完成订单的等待时间
-            for order in completed_orders:
-                if 'actual_wait_time' in order:
-                    step_info['waiting_times'].append(order['actual_wait_time'])
-
-            # 记录服务中取消的订单数（这些订单已经被匹配但超时了）
-            step_info['cancelled_orders'] += len(serving_cancelled)
-            self.episode_stats['total_orders_cancelled'] += len(serving_cancelled)
-
-            # 2. 加载新订单
+            # 3. 加载新订单
             new_orders = self.order_generator._load_orders_for_macro_step(self.current_day, self.current_time_slice)
             self.pending_orders.extend(new_orders)
             step_info['new_orders'] = len(new_orders)
             self.episode_stats['total_orders_generated'] += len(new_orders)
 
-            # 3. 匹配订单（只匹配已经生成的订单）
-            # 过滤出已经生成的订单（订单时间戳 <= 当前仿真时间）
-            ready_orders = []
-            future_orders = []
-            for order in self.pending_orders:
-                if 'timestamp' in order:
-                    order_time = order['timestamp']
-                    if isinstance(order_time, str):
-                        order_time = pd.to_datetime(order_time)
-                    if order_time.tzinfo is None:
-                        order_time = order_time.tz_localize('Asia/Shanghai')
-
-                    # 只匹配已经生成的订单
-                    if order_time <= self.current_time:
-                        ready_orders.append(order)
-                    else:
-                        future_orders.append(order)
-                else:
-                    ready_orders.append(order)  # 没有时间戳的订单也加入匹配
-
-            matches, unmatched = self.order_matcher.match_orders(
-                ready_orders, self.vehicle_manager, self.current_time
-            )
-            # 未匹配的订单 + 未来的订单 = 下一轮的 pending_orders
-            self.pending_orders = deque(unmatched + future_orders)
-
-            step_info['matched_orders'] = len(matches)
-            self.episode_stats['total_orders_matched'] += len(matches)
-
-            # ★★★ 修复：匹配器已经在内部完成assign，这里只需统计revenue ★★★
-            for match in matches:
-                order = match['order']
-                # 注意：订单已经被assign给车辆了（在match_orders内部完成）
-                step_info['revenue'] += order.get('fee', 0.0)
-
-            self.episode_stats['total_revenue'] += step_info['revenue']
-
-            # 4. 处理超时订单（匹配前取消）
+            # 4. 处理超时订单（在匹配前取消）
             cancelled = self._cancel_timeout_orders()
-            step_info['cancelled_orders'] += cancelled  # 累加，不要覆盖
+            step_info['cancelled_orders'] = cancelled
             self.episode_stats['total_orders_cancelled'] += cancelled
 
-            # 5. 执行调度策略
+            # 5. 匹配订单
+            if self.pending_orders:
+                matches, unmatched = self.order_matcher.match_orders(
+                    list(self.pending_orders), self.vehicle_manager, self.current_time
+                )
+                self.pending_orders = deque(unmatched)
+
+                step_info['matched_orders'] = len(matches)
+                self.episode_stats['total_orders_matched'] += len(matches)
+
+                # 为每个匹配的订单安排完成事件
+                for match in matches:
+                    order = match['order']
+                    order['status'] = 'matched'
+                    order['matched_time'] = self.current_time
+
+                    # 计算等待时间（从订单生成到匹配）
+                    if 'timestamp' in order:
+                        try:
+                            gen_time = order['timestamp']
+                            if isinstance(gen_time, str):
+                                gen_time = pd.to_datetime(gen_time)
+                            if gen_time.tzinfo is None:
+                                gen_time = gen_time.tz_localize('Asia/Shanghai')
+                            wait_time_sec = (self.current_time - gen_time).total_seconds()
+                            order['wait_to_match_sec'] = max(0, wait_time_sec)
+                        except Exception:
+                            order['wait_to_match_sec'] = 0
+
+                    # 统计收入
+                    step_info['revenue'] += order.get('fee', 0.0)
+
+                    # 安排订单完成事件
+                    self._schedule_order_completion(match, self.current_time)
+
+                self.episode_stats['total_revenue'] += step_info['revenue']
+
+            # 6. 执行调度策略
             if self.dispatch_policy == 'random_walk':
                 dispatch_info = self._execute_random_walk_dispatch()
             elif self.dispatch_policy == 'random_dispatch':
@@ -806,7 +657,7 @@ class BaselineEnvironment:
             step_info['dispatch_total'] = dispatch_info.get('dispatch_total', 0)
             self.episode_stats['total_dispatches'] += step_info['dispatch_success']
 
-            # 6. 更新时间
+            # 7. 更新时间
             self.simulation_time += pd.Timedelta(seconds=self.config.TICK_DURATION_SEC)
             self.current_time = self.simulation_time
 
@@ -816,16 +667,12 @@ class BaselineEnvironment:
             else:
                 base_time = pd.Timestamp(self.config.DATA_START_DATE, tz='Asia/Shanghai').normalize()
 
-            # 计算当前是第几天（相对于数据集起点）
-            # 注意：current_day 应该是相对于数据集起点的绝对天数，不要再加 episode_start_day
             self.current_day = (self.current_time.normalize() - base_time).days
-
-            # 计算当前是第几个 time_slice（根据当前时刻的分钟数）
             minutes_from_midnight = self.current_time.hour * 60 + self.current_time.minute
             self.current_time_slice = min(minutes_from_midnight // self.config.MACRO_STATISTICS_STEP_MINUTES,
-                                         self.config.NUM_TIME_SLICES - 1)
+                                        self.config.NUM_TIME_SLICES - 1)
 
-            # 7. 检查是否完成
+            # 8. 检查是否完成
             done = self.episode_step >= self.config.MAX_TICKS_PER_EPISODE
 
             self.reward_calculator.update(step_info)
@@ -836,6 +683,124 @@ class BaselineEnvironment:
             print(f"错误: step() 失败: {e}")
             traceback.print_exc()
             return {}, 0.0, True, {}
+
+    def _schedule_order_completion(self, match, current_time):
+        """安排订单完成事件（与主环境保持一致）"""
+        order = match.get('order')
+        vehicle_id = match.get('vehicle_id')
+        if order is None or vehicle_id is None:
+            return
+
+        try:
+            pickup_grid = int(order['grid_index'])
+            dest_grid = int(order.get('dest_grid_index', pickup_grid))
+        except (ValueError, TypeError, KeyError):
+            return
+
+        if not (0 <= dest_grid < self.config.NUM_GRIDS):
+            dest_grid = pickup_grid
+        if not (0 <= pickup_grid < self.config.NUM_GRIDS):
+            pickup_grid = 0
+
+        # 计算服务时间
+        service_time_minutes = self.vehicle_manager._calculate_travel_time(pickup_grid, dest_grid)
+        pickup_time_minutes = match.get('distance', 0.0)
+        total_duration_minutes = pickup_time_minutes + service_time_minutes
+
+        service_duration = pd.Timedelta(minutes=total_duration_minutes)
+        min_duration = pd.Timedelta(seconds=self.config.TICK_DURATION_SEC)
+        completion_time = current_time + max(min_duration, service_duration)
+
+        event = {
+            'time': completion_time,
+            'type': 'order_completion',
+            'vehicle_id': int(vehicle_id),
+            'order': order,
+            'destination_grid': dest_grid
+        }
+
+        # 保持事件队列按时间排序
+        self.event_queue.append(event)
+        self.event_queue.sort(key=lambda e: e['time'])
+
+    def _process_order_completion_events(self, current_time, step_info):
+        """处理到期的订单完成事件"""
+        due_events_indices = []
+
+        for i, event in enumerate(self.event_queue):
+            if event is None or 'time' not in event:
+                continue
+
+            event_time = event.get('time')
+            if not isinstance(event_time, pd.Timestamp):
+                continue
+
+            # 确保时区一致
+            if event_time.tzinfo is None and current_time.tzinfo is not None:
+                event_time = event_time.tz_localize(current_time.tzinfo)
+            elif event_time.tzinfo != current_time.tzinfo and event_time.tzinfo is not None:
+                try:
+                    event_time = event_time.tz_convert(current_time.tzinfo)
+                except Exception:
+                    continue
+
+            if event_time <= current_time:
+                due_events_indices.append(i)
+            else:
+                break  # 队列已排序，可以提前停止
+
+        if not due_events_indices:
+            return
+
+        # 从后往前处理，避免索引问题
+        for i in reversed(due_events_indices):
+            try:
+                if i >= len(self.event_queue):
+                    continue
+
+                event = self.event_queue.pop(i)
+                if event is None:
+                    continue
+
+                if event.get('type') == 'order_completion':
+                    vehicle_id = event.get('vehicle_id')
+                    order = event.get('order')
+                    dest_grid = event.get('destination_grid')
+
+                    if vehicle_id is None or order is None or dest_grid is None:
+                        continue
+
+                    vehicle = self.vehicle_manager.vehicles.get(vehicle_id)
+                    if not vehicle:
+                        continue
+
+                    # 完成服务
+                    service_completed = self.vehicle_manager.complete_service(
+                        vehicle_id, dest_grid, current_time
+                    )
+
+                    if service_completed:
+                        order['status'] = 'completed'
+
+                        # 计算总等待时间（从生成到完成）
+                        if 'timestamp' in order:
+                            try:
+                                gen_time = order['timestamp']
+                                if isinstance(gen_time, str):
+                                    gen_time = pd.to_datetime(gen_time)
+                                if gen_time.tzinfo is None:
+                                    gen_time = gen_time.tz_localize('Asia/Shanghai')
+
+                                # 等待时间 = 从生成到匹配的时间
+                                wait_time_sec = order.get('wait_to_match_sec', 0)
+                                step_info['waiting_times'].append(wait_time_sec)
+                            except Exception:
+                                pass
+
+                        step_info['completed_orders'] += 1
+
+            except Exception as e:
+                pass  # 忽略单个事件的错误，继续处理其他事件
 
     def _cancel_timeout_orders(self):
         """取消超时订单"""
