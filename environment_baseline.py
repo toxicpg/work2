@@ -454,28 +454,32 @@ class OrderMatcher:
     """订单匹配器 - 使用K-NN搜索（与主环境一致）"""
     def __init__(self, config):
         self.config = config
-        # 使用K-NN搜索，而不是半径搜索
+        # 使用K-NN搜索，与主实验保持一致
         self.k_to_search = getattr(config, 'MATCHER_KNN_K', 30)
-        print(f"  OrderMatcher 初始化 (K-NN, k={self.k_to_search})")
+        print(f"  OrderMatcher 初始化 (K-NN搜索, k={self.k_to_search}, 匹配时立即assign)")
 
     def match_orders(self, pending_orders, vehicle_manager, current_time):
-        """匹配订单和车辆"""
+        """匹配订单和车辆（与主实验一致：在匹配时立即assign）"""
         matches = []
         unmatched_orders = list(pending_orders)
-        idle_vehicles = []
+
+        # 收集所有空闲车辆
+        idle_vehicles_data = []
+        grid_cols = self.config.GRID_SIZE[1]
 
         for v_id, vehicle in vehicle_manager.vehicles.items():
             if vehicle['status'] == 'idle':
                 grid = vehicle.get('current_grid')
                 if isinstance(grid, (int, np.integer)) and 0 <= grid < self.config.NUM_GRIDS:
-                    idle_vehicles.append({'id': v_id, 'grid': grid})
+                    idle_vehicles_data.append({'id': v_id, 'grid': grid})
 
-        if not idle_vehicles:
+        if not idle_vehicles_data:
             return [], unmatched_orders
 
         still_unmatched = []
-        available_idle_vehicles = {v['id']: v for v in idle_vehicles}
-        grid_cols = self.config.GRID_SIZE[1]
+        # 使用Set追踪可用车辆，效率更高
+        available_vehicle_ids = {v['id'] for v in idle_vehicles_data}
+        vehicles_dict = {v['id']: v['grid'] for v in idle_vehicles_data}
 
         random.shuffle(unmatched_orders)
         for order in unmatched_orders:
@@ -490,31 +494,42 @@ class OrderMatcher:
             best_match_vehicle_id = None
             min_travel_time = float('inf')
 
-            # 使用K-NN：计算所有车辆的距离，选择最近的K个
-            vehicle_items = list(available_idle_vehicles.items())
+            # 使用K-NN：计算所有可用车辆的距离，选择最近的K个
             vehicle_distances = []
 
-            for v_id, v_data in vehicle_items:
-                v_row, v_col = divmod(v_data['grid'], grid_cols)
+            for v_id in available_vehicle_ids:
+                v_grid = vehicles_dict[v_id]
+                v_row, v_col = divmod(v_grid, grid_cols)
                 manhattan_dist = abs(v_row - order_row) + abs(v_col - order_col)
-                vehicle_distances.append((manhattan_dist, v_id, v_data))
+                vehicle_distances.append((manhattan_dist, v_id, v_grid))
 
             # 按距离排序，只考虑最近的K个
             vehicle_distances.sort(key=lambda x: x[0])
             k_nearest = vehicle_distances[:min(self.k_to_search, len(vehicle_distances))]
 
             # 在K个最近的车辆中选择旅行时间最短的
-            for _, v_id, v_data in k_nearest:
-                travel_time = vehicle_manager._calculate_travel_time(v_data['grid'], order_grid)
+            for _, v_id, v_grid in k_nearest:
+                travel_time = vehicle_manager._calculate_travel_time(v_grid, order_grid)
                 if travel_time < min_travel_time:
                     min_travel_time = travel_time
                     best_match_vehicle_id = v_id
 
+            # ★★★ 关键修复：在匹配时立即assign，确保车辆状态同步 ★★★
             if best_match_vehicle_id is not None:
-                # 注意：这里不直接assign，而是返回匹配结果，在step()中统一assign
-                matches.append({'order': order, 'vehicle_id': best_match_vehicle_id, 'distance': min_travel_time})
-                if best_match_vehicle_id in available_idle_vehicles:
-                    del available_idle_vehicles[best_match_vehicle_id]
+                # 立即分配订单（与主实验一致）
+                assign_success = vehicle_manager.assign_order(
+                    best_match_vehicle_id, order, current_time, min_travel_time
+                )
+                if assign_success:
+                    matches.append({
+                        'order': order,
+                        'vehicle_id': best_match_vehicle_id,
+                        'distance': min_travel_time
+                    })
+                    # 从可用车辆集合中移除
+                    available_vehicle_ids.remove(best_match_vehicle_id)
+                else:
+                    still_unmatched.append(order)
             else:
                 still_unmatched.append(order)
 
@@ -738,13 +753,10 @@ class BaselineEnvironment:
             step_info['matched_orders'] = len(matches)
             self.episode_stats['total_orders_matched'] += len(matches)
 
+            # ★★★ 修复：匹配器已经在内部完成assign，这里只需统计revenue ★★★
             for match in matches:
                 order = match['order']
-                vehicle_id = match['vehicle_id']
-                pickup_time = match.get('distance', 0.0)  # 接驾时间（分钟）
-
-                # 分配订单给车辆（传入current_time和接驾时间）
-                self.vehicle_manager.assign_order(vehicle_id, order, self.current_time, pickup_time)
+                # 注意：订单已经被assign给车辆了（在match_orders内部完成）
                 step_info['revenue'] += order.get('fee', 0.0)
 
             self.episode_stats['total_revenue'] += step_info['revenue']
