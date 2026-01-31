@@ -463,6 +463,7 @@ class OrderMatcher:
     def __init__(self, config):
         self.config = config
         # 使用K-NN搜索，与主实验保持一致
+        # 默认使用30，如果config中有定义则使用config中的值
         self.k_to_search = getattr(config, 'MATCHER_KNN_K', 30)
         print(f"  OrderMatcher 初始化 (K-NN搜索, k={self.k_to_search}, 匹配时立即assign)")
 
