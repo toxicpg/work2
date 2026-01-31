@@ -671,10 +671,31 @@ class BaselineEnvironment:
                 step_info['matched_orders'] = len(matches)
                 self.episode_stats['total_orders_matched'] += len(matches)
 
-                # 统计revenue
+                # 统计revenue和等待时间
                 for match in matches:
                     order = match['order']
                     step_info['revenue'] += order.get('fee', 0.0)
+
+                    # 计算等待时间 = 匹配等待时间 + 接驾时间
+                    gen_time = order.get('generated_at')
+                    pickup_time_minutes = match.get('distance', 0.0)  # distance就是接驾时间（分钟）
+
+                    if isinstance(gen_time, pd.Timestamp):
+                        try:
+                            # 确保时区一致
+                            if gen_time.tzinfo is None and self.current_time.tzinfo is not None:
+                                gen_time = gen_time.tz_localize(self.current_time.tzinfo)
+
+                            # 匹配等待时间（从生成到匹配）
+                            wait_to_match_sec = (self.current_time - gen_time).total_seconds()
+                            # 接驾时间
+                            wait_for_pickup_sec = pickup_time_minutes * 60.0
+                            # 总等待时间
+                            total_wait_sec = wait_to_match_sec + wait_for_pickup_sec
+
+                            step_info['waiting_times'].append(total_wait_sec)
+                        except Exception:
+                            pass
 
                 self.episode_stats['total_revenue'] += step_info['revenue']
 

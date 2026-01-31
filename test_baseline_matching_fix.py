@@ -114,11 +114,14 @@ def test_random_walk_baseline():
     print(f"  总收入: ¥{env.episode_stats['total_revenue']:,.2f}")
 
     if metrics.get('avg_waiting_time', 0) > 0:
-        print(f"\n等待时间:")
+        print(f"\n等待时间统计 (匹配等待 + 接驾时间):")
         print(f"  平均等待: {metrics['avg_waiting_time']:.1f}秒 ({metrics['avg_waiting_time']/60:.1f}分钟)")
-        print(f"  最小等待: {metrics['min_waiting_time']:.1f}秒")
-        print(f"  最大等待: {metrics['max_waiting_time']:.1f}秒")
+        print(f"  最小等待: {metrics['min_waiting_time']:.1f}秒 ({metrics['min_waiting_time']/60:.1f}分钟)")
+        print(f"  最大等待: {metrics['max_waiting_time']:.1f}秒 ({metrics['max_waiting_time']/60:.1f}分钟)")
         print(f"  标准差: {metrics['std_waiting_time']:.1f}秒")
+        print(f"  样本数: {len(env.reward_calculator.waiting_times):,}")
+    else:
+        print(f"\n等待时间统计: 无数据")
 
     # 车辆状态统计
     vehicle_stats = env.vehicle_manager.get_statistics()
