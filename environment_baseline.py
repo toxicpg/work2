@@ -620,6 +620,11 @@ class BaselineEnvironment:
             step_info['new_orders'] = len(new_orders)
             self.episode_stats['total_orders_generated'] += len(new_orders)
 
+            # 2.5 ★★★ 修复：在匹配前取消超时订单（与主实验一致）★★★
+            cancelled = self._cancel_timeout_orders()
+            step_info['cancelled_orders'] = cancelled
+            self.episode_stats['total_orders_cancelled'] += cancelled
+
             # 3. 匹配订单（只匹配已经生成的订单）
             # 过滤出已经生成的订单（订单时间戳 <= 当前仿真时间）
             ready_orders = []
@@ -657,12 +662,7 @@ class BaselineEnvironment:
 
             self.episode_stats['total_revenue'] += step_info['revenue']
 
-            # 4. 处理超时订单（匹配前取消）
-            cancelled = self._cancel_timeout_orders()
-            step_info['cancelled_orders'] += cancelled  # 累加，不要覆盖
-            self.episode_stats['total_orders_cancelled'] += cancelled
-
-            # 5. 执行调度策略
+            # 4. 执行调度策略
             if self.dispatch_policy == 'random_walk':
                 dispatch_info = self._execute_random_walk_dispatch()
             elif self.dispatch_policy == 'random_dispatch':
