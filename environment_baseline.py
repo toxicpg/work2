@@ -750,9 +750,9 @@ class BaselineEnvironment:
             else:
                 base_time = pd.Timestamp(self.config.DATA_START_DATE, tz='Asia/Shanghai').normalize()
 
-            # 计算当前是第几天
-            days_elapsed = (self.current_time.normalize() - base_time).days
-            self.current_day = self.episode_start_day + days_elapsed
+            # 计算当前是第几天（相对于数据集起点）
+            # 注意：current_day 应该是相对于数据集起点的绝对天数，不要再加 episode_start_day
+            self.current_day = (self.current_time.normalize() - base_time).days
 
             # 计算当前是第几个 time_slice（根据当前时刻的分钟数）
             minutes_from_midnight = self.current_time.hour * 60 + self.current_time.minute
