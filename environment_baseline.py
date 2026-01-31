@@ -592,6 +592,50 @@ class BaselineEnvironment:
         self.vehicle_manager.reset()
         self.reward_calculator.reset()
 
+    def _load_orders_for_tick(self):
+        """加载当前tick的订单（使用buffered机制，与主实验一致）"""
+        key = (self.current_day, self.current_time_slice)
+
+        # 如果切换到新的time_slice，加载该slice的所有订单到buffer
+        if key != self.current_macro_slice_key:
+            all_slice_orders = self.order_generator._load_orders_for_macro_step(
+                self.current_day, self.current_time_slice
+            )
+            self.buffered_orders = deque(all_slice_orders)
+            self.current_macro_slice_key = key
+
+        # 从buffer中取出本tick应该生成的订单
+        new_orders_for_tick = []
+        tick_end_time = self.simulation_time + pd.Timedelta(seconds=self.config.TICK_DURATION_SEC)
+
+        while self.buffered_orders:
+            order = self.buffered_orders[0]
+            order_time = order.get('timestamp')
+
+            if order_time is None:
+                # 没有时间戳的订单直接取出
+                new_orders_for_tick.append(self.buffered_orders.popleft())
+                continue
+
+            # 确保时区一致
+            if order_time.tzinfo is None and tick_end_time.tzinfo is not None:
+                order_time = order_time.tz_localize(tick_end_time.tzinfo)
+            elif order_time.tzinfo is not None and tick_end_time.tzinfo is None:
+                tick_end_time = tick_end_time.tz_localize(order_time.tzinfo)
+            elif order_time.tzinfo != tick_end_time.tzinfo:
+                try:
+                    order_time = order_time.tz_convert(tick_end_time.tzinfo)
+                except Exception:
+                    break  # 无法比较，退出
+
+            # 如果订单时间在本tick范围内，取出
+            if order_time < tick_end_time:
+                new_orders_for_tick.append(self.buffered_orders.popleft())
+            else:
+                break  # 后面的订单都是未来的
+
+        return new_orders_for_tick
+
     def step(self):
         """执行一个时间步"""
         self.episode_step += 1
@@ -614,55 +658,35 @@ class BaselineEnvironment:
             completed_orders, _ = self.vehicle_manager.update_serving_vehicles(self.current_time)
             step_info['completed_orders'] = len(completed_orders)
 
-            # 2. 加载新订单
-            new_orders = self.order_generator._load_orders_for_macro_step(self.current_day, self.current_time_slice)
-            self.pending_orders.extend(new_orders)
-            step_info['new_orders'] = len(new_orders)
-            self.episode_stats['total_orders_generated'] += len(new_orders)
-
-            # 2.5 ★★★ 修复：在匹配前取消超时订单（与主实验一致）★★★
+            # 2. 取消超时订单（在匹配前，与主实验一致）
             cancelled = self._cancel_timeout_orders()
             step_info['cancelled_orders'] = cancelled
             self.episode_stats['total_orders_cancelled'] += cancelled
 
-            # 3. 匹配订单（只匹配已经生成的订单）
-            # 过滤出已经生成的订单（订单时间戳 <= 当前仿真时间）
-            ready_orders = []
-            future_orders = []
-            for order in self.pending_orders:
-                if 'timestamp' in order:
-                    order_time = order['timestamp']
-                    if isinstance(order_time, str):
-                        order_time = pd.to_datetime(order_time)
-                    if order_time.tzinfo is None:
-                        order_time = order_time.tz_localize('Asia/Shanghai')
+            # 3. 匹配订单（与主实验一致：直接匹配所有pending订单）
+            if self.pending_orders:
+                matches, unmatched = self.order_matcher.match_orders(
+                    list(self.pending_orders), self.vehicle_manager, self.current_time
+                )
+                self.pending_orders = deque(unmatched)
 
-                    # 只匹配已经生成的订单
-                    if order_time <= self.current_time:
-                        ready_orders.append(order)
-                    else:
-                        future_orders.append(order)
-                else:
-                    ready_orders.append(order)  # 没有时间戳的订单也加入匹配
+                step_info['matched_orders'] = len(matches)
+                self.episode_stats['total_orders_matched'] += len(matches)
 
-            matches, unmatched = self.order_matcher.match_orders(
-                ready_orders, self.vehicle_manager, self.current_time
-            )
-            # 未匹配的订单 + 未来的订单 = 下一轮的 pending_orders
-            self.pending_orders = deque(unmatched + future_orders)
+                # 统计revenue
+                for match in matches:
+                    order = match['order']
+                    step_info['revenue'] += order.get('fee', 0.0)
 
-            step_info['matched_orders'] = len(matches)
-            self.episode_stats['total_orders_matched'] += len(matches)
+                self.episode_stats['total_revenue'] += step_info['revenue']
 
-            # ★★★ 修复：匹配器已经在内部完成assign，这里只需统计revenue ★★★
-            for match in matches:
-                order = match['order']
-                # 注意：订单已经被assign给车辆了（在match_orders内部完成）
-                step_info['revenue'] += order.get('fee', 0.0)
+            # 4. 生成本tick的新订单（与主实验一致：在匹配之后生成）
+            new_orders = self._load_orders_for_tick()
+            self.pending_orders.extend(new_orders)
+            step_info['new_orders'] = len(new_orders)
+            self.episode_stats['total_orders_generated'] += len(new_orders)
 
-            self.episode_stats['total_revenue'] += step_info['revenue']
-
-            # 4. 执行调度策略
+            # 5. 执行调度策略
             if self.dispatch_policy == 'random_walk':
                 dispatch_info = self._execute_random_walk_dispatch()
             elif self.dispatch_policy == 'random_dispatch':
