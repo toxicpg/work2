@@ -1,147 +1,140 @@
-"""
-测试 Random Walk Baseline - 1800辆车，执行1天
-修复内容：
-1. 匹配器在匹配时立即assign订单，而不是返回后再assign
-2. 车辆在接驾完成时更新位置到订单起点
-3. 车辆在接驾途中订单取消时，如果走了一半以上更新到订单起点
-"""
-import os
-import sys
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-import random
+import unittest
+import pandas as pd
 import numpy as np
-import torch
-from tqdm import tqdm
+from collections import deque
 from config import Config
-from environment_baseline import BaselineEnvironment
-from utils.data_process import DataProcessor
+from environment_baseline import BaselineEnvironment, VehicleManager, OrderMatcher
 
-def set_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
+class TestBaselineMatchingFix(unittest.TestCase):
+    def setUp(self):
+        self.config = Config()
+        self.config.MAX_WAITING_TIME = 300  # 300秒
+        self.config.AVG_SPEED_KMH = 40      # 40 km/h -> 1.5 min/grid
+        self.config.GRID_SIZE = (20, 20)
+        self.config.NUM_GRIDS = 400
 
-def test_random_walk_baseline():
-    """测试 Random Walk Baseline - 1800辆车，1天"""
-    print("=" * 70)
-    print("Random Walk Baseline 测试")
-    print("=" * 70)
+        # Mock DataProcessor and Orders
+        self.mock_orders_df = pd.DataFrame({
+            'order_id': ['test_1'],
+            'timestamp': [pd.Timestamp('2016-11-01 00:00:00', tz='Asia/Shanghai')],
+            'departure_time': [1477929600],
+            'grid_index': [0],
+            'dest_grid_index': [1],
+            'fee': [10.0],
+            'relative_day': [0],
+            'time_slice': [0]
+        })
 
-    # 初始化配置
-    config = Config()
-    set_seed(config.SEED)
+        # Initialize Environment
+        # We pass a dummy data_processor as None since we won't use it for this test
+        self.env = BaselineEnvironment(self.config, None, self.mock_orders_df, dispatch_policy='none')
+        self.env.reset()
 
-    print(f"\n配置:")
-    print(f"  车辆数: {config.TOTAL_VEHICLES}")
-    print(f"  Tick时长: {config.TICK_DURATION_SEC}秒")
-    print(f"  Episode天数: {config.EPISODE_DAYS}天")
-    print(f"  最大Ticks: {config.MAX_TICKS_PER_EPISODE}")
+    def test_timeout_prediction_in_matching(self):
+        """测试场景 1：预判超时"""
+        print("\n=== 测试场景 1：预判超时 ===")
 
-    # 加载数据
-    print(f"\n[1] 加载数据...")
-    data_processor = DataProcessor(config)
-    all_orders = data_processor.load_and_process_orders()
-    all_orders['date'] = all_orders['timestamp'].dt.date
+        # 1. 设置当前时间
+        base_time = pd.Timestamp('2016-11-01 00:00:00', tz='Asia/Shanghai')
+        self.env.current_time = base_time + pd.Timedelta(seconds=250) # 已经过了250秒
 
-    # 选择一天的数据进行测试
-    test_day = sorted(all_orders['date'].unique())[0]
-    day_orders = all_orders[all_orders['date'] == test_day]
-    print(f"  测试日期: {test_day}")
-    print(f"  订单数量: {len(day_orders)}")
+        # 2. 创建一个订单，生成时间为 base_time (T=0)
+        order = {
+            'order_id': 'order_timeout_test',
+            'timestamp': base_time,
+            'grid_index': 0,  # 在 Grid 0
+            'dest_grid_index': 1,
+            'status': 'pending'
+        }
 
-    # 初始化环境（使用random_walk策略）
-    print(f"\n[2] 初始化环境 (策略: random_walk)...")
-    env = BaselineEnvironment(config, data_processor, day_orders, dispatch_policy='random_walk')
-    env.reset()
+        # 3. 创建一个车辆，在 Grid 10
+        # 假设 Grid 0 和 Grid 10 的距离导致接驾时间 > 50秒
+        # Grid 0 = (0, 0), Grid 10 = (0, 10) -> 距离 10
+        # 速度 40km/h -> 1.5 min/grid -> 10 * 1.5 = 15分钟 = 900秒
+        # 肯定超时
 
-    # 运行仿真
-    print(f"\n[3] 运行仿真 (执行 {config.MAX_TICKS_PER_EPISODE} 个ticks)...")
+        # 为了精确控制，我们找一个刚好超时的
+        # 剩余时间预算 = 300 - 250 = 50秒 = 0.83分钟
+        # 1 grid = 1.5分钟 = 90秒 > 50秒
+        # 所以只要距离 >= 1 grid，就应该超时
 
-    pbar = tqdm(total=config.MAX_TICKS_PER_EPISODE, desc="仿真进度")
+        vehicle_id = 0
+        self.env.vehicle_manager.vehicles[vehicle_id] = {
+            'id': vehicle_id,
+            'current_grid': 1, # 距离 Grid 0 为 1 (0,1) -> (0,0) dist=1
+            'status': 'idle',
+            'idle_since': self.env.current_time
+        }
 
-    step_count = 0
+        # 4. 尝试匹配
+        pending_orders = [order]
+        matches, unmatched = self.env.order_matcher.match_orders(
+            pending_orders, self.env.vehicle_manager, self.env.current_time
+        )
 
-    try:
-        while step_count < config.MAX_TICKS_PER_EPISODE:
-            _, _, done, info = env.step()
+        # 5. 验证
+        # 预期：不匹配，因为 250 + 90 = 340 > 300
+        print(f"  当前等待: 250s")
+        print(f"  接驾距离: 1 grid -> 预计接驾时间: {1.5 * 60}s = 90s")
+        print(f"  预计总时间: 340s > 300s")
+        print(f"  匹配结果数量: {len(matches)}")
 
-            step_info = info.get('step_info', {})
-            matched = step_info.get('matched_orders', 0)
-            new_orders = step_info.get('new_orders', 0)
+        self.assertEqual(len(matches), 0, "应该因为预判超时而不匹配")
+        self.assertEqual(len(unmatched), 1, "订单应该保持未匹配")
 
-            step_count += 1
-            pbar.update(1)
+    def test_position_update_on_cancel(self):
+        """测试场景 2：取消后位置更新"""
+        print("\n=== 测试场景 2：取消后位置更新 ===")
 
-            # 更新进度条信息
-            if step_count % 100 == 0:
-                current_match_rate = (env.episode_stats['total_orders_matched'] /
-                                     env.episode_stats['total_orders_generated']
-                                     if env.episode_stats['total_orders_generated'] > 0 else 0)
-                pbar.set_postfix({
-                    '匹配率': f"{current_match_rate:.2%}",
-                    '已匹配': env.episode_stats['total_orders_matched'],
-                    '已生成': env.episode_stats['total_orders_generated']
-                })
+        # 1. 设置时间 T=0
+        base_time = pd.Timestamp('2016-11-01 00:00:00', tz='Asia/Shanghai')
+        self.env.current_time = base_time
 
-            if done:
-                break
-    finally:
-        pbar.close()
+        # 2. 创建订单和车辆
+        order = {
+            'order_id': 'order_cancel_test',
+            'timestamp': base_time,
+            'grid_index': 100,  # 接驾点在 Grid 100
+            'dest_grid_index': 101,
+            'status': 'pending'
+        }
 
-    # 最终统计
-    print("\n" + "=" * 70)
-    print("仿真结果:")
-    print("=" * 70)
+        vehicle_id = 0
+        start_grid = 0 # 车辆初始在 Grid 0
+        self.env.vehicle_manager.vehicles[vehicle_id] = {
+            'id': vehicle_id,
+            'current_grid': start_grid,
+            'status': 'idle',
+            'idle_since': base_time
+        }
 
-    total_generated = env.episode_stats['total_orders_generated']
-    metrics = env.reward_calculator.get_metrics(total_orders_generated=total_generated)
+        # 3. 强制分配订单 (跳过 match_orders 的预判，直接测试 update_serving_vehicles)
+        # 计算接驾时间
+        travel_time = self.env.vehicle_manager._calculate_travel_time(start_grid, 100)
+        self.env.vehicle_manager.assign_order(vehicle_id, order, base_time, travel_time)
 
-    print(f"\n订单统计:")
-    print(f"  总生成订单: {total_generated:,}")
-    print(f"  总匹配订单: {env.episode_stats['total_orders_matched']:,}")
-    print(f"  总完成订单: {metrics['completed_orders']:,}")
-    print(f"  总取消订单: {env.episode_stats['total_orders_cancelled']:,}")
-    print(f"  匹配率: {metrics['match_rate']:.2%}")
-    print(f"  完成率: {metrics.get('completion_rate', 0):.2%}")
-    print(f"  取消率: {metrics.get('cancel_rate', 0):.2%}")
+        vehicle = self.env.vehicle_manager.vehicles[vehicle_id]
+        print(f"  分配后状态: {vehicle['status']}")
+        print(f"  分配后位置: {vehicle['current_grid']} (应为 {start_grid})")
+        self.assertEqual(vehicle['status'], 'picking_up')
+        self.assertEqual(vehicle['current_grid'], start_grid)
 
-    print(f"\n调度统计:")
-    print(f"  总调度次数: {env.episode_stats['total_dispatches']:,}")
-    print(f"  总收入: ¥{env.episode_stats['total_revenue']:,.2f}")
+        # 4. 推进时间到超时 (T=301)
+        self.env.current_time = base_time + pd.Timedelta(seconds=301)
 
-    if metrics.get('avg_waiting_time', 0) > 0:
-        print(f"\n等待时间统计 (匹配等待 + 接驾时间):")
-        print(f"  平均等待: {metrics['avg_waiting_time']:.1f}秒 ({metrics['avg_waiting_time']/60:.1f}分钟)")
-        print(f"  最小等待: {metrics['min_waiting_time']:.1f}秒 ({metrics['min_waiting_time']/60:.1f}分钟)")
-        print(f"  最大等待: {metrics['max_waiting_time']:.1f}秒 ({metrics['max_waiting_time']/60:.1f}分钟)")
-        print(f"  标准差: {metrics['std_waiting_time']:.1f}秒")
-        print(f"  样本数: {len(env.reward_calculator.waiting_times):,}")
-    else:
-        print(f"\n等待时间统计: 无数据")
+        # 5. 更新服务状态
+        completed, cancelled = self.env.vehicle_manager.update_serving_vehicles(self.env.current_time)
 
-    # 车辆状态统计
-    vehicle_stats = env.vehicle_manager.get_statistics()
-    print(f"\n车辆状态分布:")
-    for status, count in sorted(vehicle_stats.items()):
-        percentage = count / config.TOTAL_VEHICLES * 100
-        print(f"  {status}: {count} ({percentage:.1f}%)")
+        # 6. 验证
+        vehicle = self.env.vehicle_manager.vehicles[vehicle_id]
+        print(f"  超时后状态: {vehicle['status']}")
+        print(f"  超时后位置: {vehicle['current_grid']} (预期为 100)")
 
-    print("=" * 70)
+        self.assertEqual(len(cancelled), 1, "订单应该被取消")
+        self.assertEqual(vehicle['status'], 'idle', "车辆应该变回 idle")
+        self.assertEqual(vehicle['current_grid'], 100, "车辆位置应该更新为接驾点 (Grid 100)")
 
-    # 判断结果
-    if metrics['match_rate'] > 0.60:
-        print("✓ 匹配率良好 (>60%)")
-    elif metrics['match_rate'] > 0.40:
-        print("⚠ 匹配率中等 (40%-60%)")
-    else:
-        print("✗ 匹配率偏低 (<40%)")
-
-    return metrics
-
-if __name__ == "__main__":
-    test_random_walk_baseline()
+if __name__ == '__main__':
+    unittest.main()
 
