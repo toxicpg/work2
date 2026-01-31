@@ -375,9 +375,18 @@ class VehicleManager:
                                 gen_time = pd.to_datetime(gen_time)
                             if gen_time.tzinfo is None and current_time.tzinfo is not None:
                                 gen_time = gen_time.tz_localize(current_time.tzinfo)
+                            elif gen_time.tzinfo is not None and current_time.tzinfo is None:
+                                # current_time 没有时区，给它加上时区
+                                current_time = current_time.tz_localize('Asia/Shanghai')
 
                             # 等待时间 = 从生成到客人上车（不包括送客时间）
                             wait_time_sec = (current_time - gen_time).total_seconds()
+
+                            # 防止负数（可能因为时区问题）
+                            if wait_time_sec < 0:
+                                print(f"警告: 等待时间为负数 ({wait_time_sec:.1f}秒), gen_time={gen_time}, current_time={current_time}")
+                                wait_time_sec = 0.0
+
                             order['actual_wait_time'] = wait_time_sec
 
                         # 注意：不要 continue，下面的 serving 逻辑会在下一个 tick 处理
