@@ -309,7 +309,7 @@ class OrderMatcher:
 
         matches = []
         unmatched_orders = list(pending_orders)
-        
+
         # 1. 收集所有空闲车辆 (V5.5: 收集坐标和ID)
         idle_vehicles_data = []
         grid_cols = self.config.GRID_SIZE[1] # (在循环外获取)
@@ -323,7 +323,7 @@ class OrderMatcher:
                     # 存储 (坐标, 车辆ID, 原始网格ID)
                     idle_vehicles_data.append( ([row, col], v_id, grid) )
 
-        if not idle_vehicles_data: 
+        if not idle_vehicles_data:
             return [], unmatched_orders # 没有空闲车
 
         # 2. 准备订单和可用车辆
@@ -381,6 +381,16 @@ class OrderMatcher:
                     min_travel_time_for_best_vehicle = float('inf')
                     # =================================================
 
+                    # 获取订单当前已等待时间
+                    order_wait_sec = 0.0
+                    try:
+                        if 'generated_at' in order:
+                            order_wait_sec = (current_time - order['generated_at']).total_seconds()
+                            if order_wait_sec < 0:
+                                order_wait_sec = 0.0
+                    except Exception:
+                        order_wait_sec = 0.0
+
                     for i, index in enumerate(neighbor_indices):
                         if index >= len(point_ids):
                             continue
@@ -389,6 +399,15 @@ class OrderMatcher:
                             euclidean_distance = distances[i]
                             vehicle_grid = vehicle_manager.vehicles[vehicle_id]['current_grid']
                             travel_time = vehicle_manager._calculate_travel_time(vehicle_grid, order_grid)
+
+                            # ✅ 关键修复：预判接驾超时
+                            # 只匹配那些"当前等待时间 + 接驾时间"不超过MAX_WAITING_TIME的车辆
+                            pickup_time_sec = travel_time * 60.0
+                            total_wait_time = order_wait_sec + pickup_time_sec
+
+                            if total_wait_time > self.config.MAX_WAITING_TIME:
+                                continue  # 跳过会超时的车辆
+
                             cost = self.euclidean_weight * euclidean_distance + self.travel_time_weight * travel_time
                             if cost < min_cost:
                                 min_cost = cost
