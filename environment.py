@@ -312,6 +312,20 @@ class OrderMatcher:
 
         for v_id, vehicle in vehicle_manager.vehicles.items():
             if vehicle['status'] == 'idle':
+                # ✅ 匹配条件检查：current_time 必须严格大于 idle_since
+                idle_since = vehicle.get('idle_since')
+                if idle_since is None:
+                    # 理论上不应该出现，因为reset时已设置
+                    continue  # 跳过
+
+                if isinstance(idle_since, pd.Timestamp):
+                    try:
+                        # 严格检查：当前时间必须大于idle开始时间
+                        if current_time <= idle_since:
+                            continue  # 跳过刚变idle的车（同一个tick内）
+                    except Exception:
+                        pass  # 时间比较失败，允许匹配
+
                 grid = vehicle.get('current_grid')
                 if isinstance(grid, (int, np.integer)) and 0 <= grid < self.config.NUM_GRIDS:
                     # (V5.5: 计算 K-D 树所需的 2D 坐标)
@@ -389,10 +403,10 @@ class OrderMatcher:
                             v_row, v_col = divmod(vehicle_grid, grid_cols)
                             manhattan_distance = abs(v_row - order_row) + abs(v_col - order_col)
 
-                            # ✅ 距离限制：不能超过1格
-                            # 非常严格的限制：只匹配相邻或同一格的车辆
-                            if manhattan_distance > 1:
-                                continue  # 跳过太远的车辆
+                            # ✅ 距离限制：必须在同一格
+                            # 极其严格的限制：只匹配同一个格子内的车辆
+                            if manhattan_distance > 0:
+                                continue  # 跳过不在同一格的车辆
 
                             travel_time = vehicle_manager._calculate_travel_time(vehicle_grid, order_grid)
                             cost = self.euclidean_weight * euclidean_distance + self.travel_time_weight * travel_time
@@ -662,6 +676,11 @@ class RideHailingEnvironment:
         }
 
         self.vehicle_manager.reset()
+
+        # ✅ 初始化所有车辆的idle_since为当前时间
+        for vehicle in self.vehicle_manager.vehicles.values():
+            vehicle['idle_since'] = self.simulation_time
+
         self.reward_calculator.reset()
         return self._get_state()
 
