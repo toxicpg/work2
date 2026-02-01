@@ -22,7 +22,7 @@ if __name__ == "__main__":
     all_orders = data_processor.load_and_process_orders()
     _, _, test_orders = data_processor.split_data_by_time(all_orders, config.TRAIN_RATIO, config.VAL_RATIO)
     print(f"测试集订单数: {len(test_orders):,}")
-    results = run_random_dispatch_simulation(config, num_episodes=7, env_data=test_orders, num_rounds=5)
+    results = run_random_dispatch_simulation(config, num_episodes=7, env_data=test_orders, num_rounds=1)
     if results:
         save_dir = f"results/vehicles_1800/baselines/"
         os.makedirs(save_dir, exist_ok=True)

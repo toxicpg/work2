@@ -421,15 +421,6 @@ class OrderMatcher:
                             # 极其严格：只匹配同一个格子内的车辆
                             # 这会大幅降低匹配率
                             if manhattan_distance > 0:
-                                if not hasattr(self, '_distance_filter_count'):
-                                    self._distance_filter_count = 0
-                                    self._distance_filter_total = 0
-                                    print(f"🚫 距离过滤已启用！限制：仅同一格（0格）")
-                                self._distance_filter_count += 1
-                                self._distance_filter_total += 1
-                                if self._distance_filter_count == 100:
-                                    print(f"   已过滤 {self._distance_filter_total} 辆车（距离>0格）")
-                                    self._distance_filter_count = 0
                                 continue  # 跳过不在同一格的车辆
 
                             travel_time = vehicle_manager._calculate_travel_time(vehicle_grid, order_grid)
