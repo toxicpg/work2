@@ -398,9 +398,20 @@ class OrderMatcher:
                         if vehicle_id in available_vehicle_ids:
                             euclidean_distance = distances[i]
                             vehicle_grid = vehicle_manager.vehicles[vehicle_id]['current_grid']
+
+                            # ✅ 计算曼哈顿距离（网格数）
+                            v_row, v_col = divmod(vehicle_grid, grid_cols)
+                            manhattan_distance = abs(v_row - order_row) + abs(v_col - order_col)
+
+                            # ✅ 第一层过滤：距离限制（不能超过3格）
+                            # MAX_WAITING_TIME=300秒，每格90秒，所以 300/90 ≈ 3.3格
+                            # 我们限制在3格以内，确保匹配率不会虚高
+                            if manhattan_distance > 3:
+                                continue  # 跳过太远的车辆
+
                             travel_time = vehicle_manager._calculate_travel_time(vehicle_grid, order_grid)
 
-                            # ✅ 关键修复：预判接驾超时
+                            # ✅ 第二层过滤：预判接驾超时
                             # 只匹配那些"当前等待时间 + 接驾时间"不超过MAX_WAITING_TIME的车辆
                             pickup_time_sec = travel_time * 60.0
                             total_wait_time = order_wait_sec + pickup_time_sec

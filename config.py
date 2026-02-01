@@ -137,7 +137,7 @@ class Config:
     BENCHMARK_SAVE_PATH = f'{RESULTS_BASE_PATH}benchmarks/'   # Baseline结果路径
     IDLE_THRESHOLD_SEC = 120
     AVG_SPEED_KMH = 40
-    MAX_WAITING_TIME = 300  # 订单等待 600 秒 (10分钟) 后取消
+    MAX_WAITING_TIME = 300  # 订单等待 300 秒 (5分钟) 后取消
     MATCHER_SEARCH_RADIUS = 10      # 订单匹配半径 (V5.5 新增)
     MATCHER_KNN_K = 30
     MATCHER_TRAVEL_TIME_WEIGHT = 1.5
