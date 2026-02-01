@@ -793,7 +793,9 @@ class BaselineEnvironment:
             # 5) 生成本 Tick 新订单
             new_orders = self._load_orders_for_tick()
             for o in new_orders:
-                o['generated_at'] = self.simulation_time
+                # ✅ 修复：使用订单的真实时间戳，而不是当前仿真时间
+                # 这样等待时间才能正确反映"从订单生成到匹配"的真实时间
+                o['generated_at'] = o.get('timestamp', self.simulation_time)
             self.pending_orders.extend(new_orders)
             step_info['new_orders'] = len(new_orders)
             self.episode_stats['total_orders_generated'] += len(new_orders)
