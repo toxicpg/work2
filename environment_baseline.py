@@ -611,10 +611,11 @@ class RewardCalculator:
 
 class BaselineEnvironment:
 
-    def __init__(self, config, data_processor, orders_df):
+    def __init__(self, config, data_processor, orders_df, dispatch_policy='none'):
         self.config = config;
         self.data_processor = data_processor
-        if orders_df.empty: print("警告：初始化 RideHailingEnvironment 时 orders_df 为空!")
+        self.dispatch_policy = dispatch_policy  # ✅ 添加 dispatch_policy 支持
+        if orders_df.empty: print("警告：初始化 BaselineEnvironment 时 orders_df 为空!")
         self.order_generator = OrderGenerator(config, orders_df)
         self.vehicle_manager = VehicleManager(config)
         self.order_matcher = OrderMatcher(config)
