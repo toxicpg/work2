@@ -23,7 +23,7 @@ if __name__ == '__main__':
     # 创建配置并强制设置车辆数量
     config = Config()
     config.TOTAL_VEHICLES = 1800
-
+    config.DISPATCH_MODE = 'random_walk'
     # 更新保存路径
     config.RESULTS_BASE_PATH = f'results/vehicles_{config.TOTAL_VEHICLES}/'
     config.MODEL_SAVE_PATH = f'{config.RESULTS_BASE_PATH}models/'

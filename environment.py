@@ -612,141 +612,225 @@ class RideHailingEnvironment:
         if grid_id is None: return action % self.config.NUM_GRIDS
         return max(0, min(self.config.NUM_GRIDS - 1, grid_id))
 
-    def reset(self):
-        available_days = self.order_generator.get_day_count();
+    def reset(self, start_day=None):
+        available_days = self.order_generator.get_day_count()
         max_start_day = max(0, available_days - self.config.EPISODE_DAYS)
-        self.episode_start_day = random.randint(0, max_start_day);
+
+        # ✅ 支持外部指定 start_day（用于 last7days）
+        if start_day is not None:
+            self.episode_start_day = int(max(0, min(max_start_day, start_day)))
+        else:
+            self.episode_start_day = random.randint(0, max_start_day)
+
         self.current_day = self.episode_start_day
-        self.current_time_slice = 0;
+        self.current_time_slice = 0
         self.episode_step = 0
+
         if hasattr(self.order_generator, 'time_range') and self.order_generator.time_range[0] != pd.Timestamp.min:
             base_time = self.order_generator.time_range[0].normalize()
         else:
             base_time = pd.Timestamp(self.config.DATA_START_DATE, tz='Asia/Shanghai').normalize()
+
         self.simulation_time = base_time + pd.Timedelta(days=self.current_day)
-        if self.simulation_time.tzinfo is None: self.simulation_time = self.simulation_time.tz_localize('Asia/Shanghai')
+        if self.simulation_time.tzinfo is None:
+            self.simulation_time = self.simulation_time.tz_localize('Asia/Shanghai')
+
         self.current_time = self.simulation_time
-        self.start_time = self.simulation_time  # 重置start_time
-        self.pending_orders.clear();
-        self.event_queue.clear();
-        self.buffered_orders.clear();
+        self.start_time = self.simulation_time
+
+        self.pending_orders.clear()
+        self.event_queue.clear()
+        self.buffered_orders.clear()
         self.current_macro_slice_key = None
-        self.episode_stats = {'total_orders_generated': 0, 'total_orders_matched': 0, 'total_orders_cancelled': 0,
-                              'total_dispatches': 0, 'total_revenue': 0.0}
-        self.vehicle_manager.reset();
+
+        self.episode_stats = {
+            'total_orders_generated': 0,
+            'total_orders_matched': 0,
+            'total_orders_cancelled': 0,
+            'total_dispatches': 0,
+            'total_revenue': 0.0
+        }
+
+        self.vehicle_manager.reset()
         self.reward_calculator.reset()
         return self._get_state()
 
     def step(self, current_epsilon=0.1):
-        """ (V5.3) 执行一个微观 Tick """
+        """执行一个微观 Tick（加入：匹配后+接驾超时也取消）"""
         self.episode_step += 1
-        step_info = {'matched_orders': 0, 'cancelled_orders': 0, 'completed_orders': 0, 'waiting_times': [], 'dispatch_success': 0,
-                     'dispatch_total': 0, 'new_orders': 0, 'revenue': 0.0}
-        
-        # 添加调试输出
+
+        step_info = {
+            'matched_orders': 0,
+            'cancelled_orders': 0,
+            'completed_orders': 0,
+            'waiting_times': [],
+            'dispatch_success': 0,
+            'dispatch_total': 0,
+            'new_orders': 0,
+            'revenue': 0.0
+        }
+
         if getattr(self.config, 'VERBOSE', False) and self.episode_step <= 5:
             print(f"DEBUG Step {self.episode_step}: Starting step at time {self.simulation_time}")
-        
+
         try:
-            # --- T 时刻开始 ---
-            # 1. 处理到期事件
+            # 1) 处理到期事件（完成订单等）
             self._process_events(self.simulation_time, step_info)
-            # 2. 更新车辆移动
+
+            # 2) 更新车辆移动（dispatching -> idle）
             self.vehicle_manager.update_dispatching_vehicles(self.simulation_time)
-            # 3. 取消超时订单
-            cancelled_this_tick = self._cancel_timeout_orders(self.simulation_time);
+
+            # 3) pending 阶段超时取消（只看等待匹配时间）
+            cancelled_this_tick = self._cancel_timeout_orders(self.simulation_time)
             step_info['cancelled_orders'] = cancelled_this_tick
-            # 4. 匹配订单
+
+            # ✅ 改法B：把取消订单的等待时间按 MAX_WAITING_TIME 计入统计（比如 300 秒）
+            if cancelled_this_tick > 0:
+                step_info['waiting_times'].extend([float(self.config.MAX_WAITING_TIME)] * int(cancelled_this_tick))
+
+            # 4) 匹配订单
+            matched_effective = 0  # ✅ 只统计“最终有效的匹配”（未被接驾超时取消）
             if self.pending_orders:
-                matches, still_pending = self.order_matcher.match_orders(list(self.pending_orders),
-                                                                         self.vehicle_manager, self.simulation_time)
-                
-                # 添加调试输出
+                matches, still_pending = self.order_matcher.match_orders(
+                    list(self.pending_orders),
+                    self.vehicle_manager,
+                    self.simulation_time
+                )
+
+                # debug
                 if hasattr(self, '_debug_match_count'):
                     self._debug_match_count += 1
                 else:
                     self._debug_match_count = 1
-                    
                 if getattr(self.config, 'VERBOSE', False) and self._debug_match_count <= 10:
                     print(f"DEBUG Match - Count {self._debug_match_count}:")
                     print(f"  Pending orders: {len(self.pending_orders)}")
-                    print(f"  Matches made: {len(matches)}")
-                
-                self.pending_orders = deque(still_pending);
-                step_info['matched_orders'] = len(matches);
-                self.episode_stats['total_orders_matched'] += len(matches)
+                    print(f"  Matches made (raw): {len(matches)}")
+
+                # 先把仍未匹配上的留在 pending
+                self.pending_orders = deque(still_pending)
+
+                # ✅ 关键：匹配后的订单，也要检查 “等待匹配+接驾” 是否 > MAX_WAITING_TIME
+                max_wait = float(getattr(self.config, "MAX_WAITING_TIME", 300))
+
                 for match in matches:
-                    order = match['order'];
-                    order['status'] = 'matched';
+                    order = match.get('order')
+                    v_id = match.get('vehicle_id')
+                    if order is None or v_id is None:
+                        continue
+
+                    # 标记匹配时间
+                    order['status'] = 'matched'
                     order['matched_time'] = self.simulation_time
+
+                    # 等待匹配时间
                     try:
-                        wait_to_match_sec = (self.simulation_time - order[
-                            'generated_at']).total_seconds()
-                        assert wait_to_match_sec >= 0
-                    except (TypeError, AssertionError, KeyError) as e:
-                        # 添加详细日志记录来诊断问题
-                        print(f"警告: wait_to_match_sec计算异常: {e}")
-                        print(f"  simulation_time: {self.simulation_time}")
-                        print(f"  order generated_at: {order.get('generated_at', 'MISSING')}")
-                        print(f"  order keys: {list(order.keys())}")
-                        
-                        # 使用更合理的fallback值：假设刚刚匹配，等待时间为10秒
+                        wait_to_match_sec = (self.simulation_time - order['generated_at']).total_seconds()
+                        if wait_to_match_sec < 0:
+                            wait_to_match_sec = 0.0
+                    except Exception as e:
+                        # fallback：当作刚生成后很快匹配
                         wait_to_match_sec = 10.0
-                    wait_for_pickup_min = match.get('distance', 0.0);
-                    wait_for_pickup_sec = wait_for_pickup_min * 60.0
+
+                    # 接驾时间（match['distance'] 已经修成“分钟”）
+                    try:
+                        wait_for_pickup_min = float(match.get('distance', 0.0))
+                    except Exception:
+                        wait_for_pickup_min = 0.0
+                    wait_for_pickup_sec = max(0.0, wait_for_pickup_min * 60.0)
+
                     total_wait_time_sec = wait_to_match_sec + wait_for_pickup_sec
-                    step_info['waiting_times'].append(total_wait_time_sec)
                     order['total_wait_time_sec'] = total_wait_time_sec
 
-                    # ===== 方案 B: 匹配奖励 =====
-                    # 在匹配时立即给予奖励（基于匹配速度）
+                    # ============================
+                    # ✅ 新增：匹配后也可能取消（含接驾）
+                    # ============================
+                    if total_wait_time_sec > max_wait:
+                        # 订单直接取消
+                        order['status'] = 'cancelled'
+                        step_info['cancelled_orders'] += 1
+                        self.episode_stats['total_orders_cancelled'] += 1
+
+                        # 把被 assign 的车回滚 idle（否则车会被“吃掉”卡 serving）
+                        vehicle = self.vehicle_manager.vehicles.get(v_id)
+                        if vehicle is not None:
+                            # 只有确实 serving 且 assigned_order 是这单才回滚
+                            if vehicle.get('status') == 'serving' and vehicle.get('assigned_order') is order:
+                                vehicle['status'] = 'idle'
+                                vehicle['assigned_order'] = None
+                                vehicle['idle_since'] = self.simulation_time
+
+                        # 不计入 waiting_times / matched / completion
+                        continue
+
+                    # ============================
+                    # 正常路径：计入等待统计、计入有效匹配
+                    # ============================
+                    step_info['waiting_times'].append(total_wait_time_sec)
+                    matched_effective += 1
+
+                    # 匹配奖励（你原来的逻辑）
                     try:
                         w = getattr(self.config, 'REWARD_WEIGHTS', {})
                         w_match = float(w.get('W_MATCH', 1.2))
                         w_match_speed = float(w.get('W_MATCH_SPEED', 0.5))
-
-                        # 快速匹配奖励: 等待时间越短，奖励越高
                         match_speed_score = np.exp(-wait_to_match_sec / self.T0)
-                        match_reward = w_match + w_match_speed * match_speed_score
-                        order['match_reward'] = match_reward
+                        order['match_reward'] = w_match + w_match_speed * match_speed_score
                     except Exception:
-                        order['match_reward'] = 1.2  # Fallback
+                        order['match_reward'] = 1.2
 
+                    # 进入完成事件队列
                     self._schedule_order_completion(match, self.simulation_time)
-            # 5. 生成 *本 Tick* 新订单
-            new_orders = self._load_orders_for_tick();
-            [o.update({'generated_at': self.simulation_time}) for o in new_orders]
-            self.pending_orders.extend(new_orders);
-            step_info['new_orders'] = len(new_orders);
+
+            # ✅ 只用“有效匹配数”
+            step_info['matched_orders'] = matched_effective
+            self.episode_stats['total_orders_matched'] += matched_effective
+
+            # 5) 生成本 Tick 新订单
+            new_orders = self._load_orders_for_tick()
+            for o in new_orders:
+                o['generated_at'] = self.simulation_time
+            self.pending_orders.extend(new_orders)
+            step_info['new_orders'] = len(new_orders)
             self.episode_stats['total_orders_generated'] += len(new_orders)
-            # 6. 执行主动调度
-            dispatch_info = self._execute_proactive_dispatch(current_epsilon);
-            step_info.update(dispatch_info);
+
+            # 6) 调度（random_walk or rl）
+            dispatch_mode = getattr(self.config, 'DISPATCH_MODE', 'rl')
+            if dispatch_mode == 'random_walk':
+                dispatch_info = self._execute_random_walk_dispatch()
+            else:
+                dispatch_info = self._execute_proactive_dispatch(current_epsilon)
+
+            step_info.update(dispatch_info)
             self.episode_stats['total_dispatches'] += dispatch_info.get('dispatch_total', 0)
-            # 7. 更新评估指标
+
+            # 7) 更新评估指标 + step reward
             self.reward_calculator.update(step_info)
-            # 计算当前步骤的奖励
             step_reward = self.reward_calculator.calculate_step_reward(step_info)
-            # 8. 推进时间
-            self.simulation_time += pd.Timedelta(seconds=self.config.TICK_DURATION_SEC);
+
+            # 8) 推进时间
+            self.simulation_time += pd.Timedelta(seconds=self.config.TICK_DURATION_SEC)
             self.current_time = self.simulation_time
+
             time_since_start_days = (
-                        self.current_time.normalize() - self.order_generator.time_range[0].normalize()).days;
+                        self.current_time.normalize() - self.order_generator.time_range[0].normalize()).days
             self.current_day = time_since_start_days
-            minutes_today = self.current_time.hour * 60 + self.current_time.minute;
+
+            minutes_today = self.current_time.hour * 60 + self.current_time.minute
             self.current_time_slice = min(minutes_today // self.config.MACRO_STATISTICS_STEP_MINUTES, 143)
-            # 9. 检查结束
+
+            # 9) done
             done = self.episode_step >= self.config.MAX_TICKS_PER_EPISODE
-            # 10. 获取下一状态
+
+            # 10) next state
             next_state = self._get_state()
-            # 11. 返回
+
             info = {'step_reward': step_reward, 'pending': len(self.pending_orders), 'step_info': step_info}
             return next_state, step_reward, done, info
 
         except Exception as e:
             print(f"❌ env.step() 内部发生严重错误 (Tick {self.episode_step}): {e}")
             traceback.print_exc()
-            # 返回一个表示错误的终止状态
             return self._get_state(), 0.0, True, {'error': str(e)}
 
     def _load_orders_for_tick(self):
@@ -1198,4 +1282,34 @@ class RideHailingEnvironment:
         else:
             print("模型已从环境移除。")
     # =====================
+    def _execute_random_walk_dispatch(self):
+        idle_vehicle_ids = self.vehicle_manager.get_long_idle_vehicles(
+            self.simulation_time, self.config.IDLE_THRESHOLD_SEC
+        )
+        if not idle_vehicle_ids:
+            return {'dispatch_success': 0, 'dispatch_total': 0}
+
+        dispatch_total = len(idle_vehicle_ids)
+        dispatch_success = 0
+        grid_rows, grid_cols = self.config.GRID_SIZE
+
+        for vehicle_id in idle_vehicle_ids:
+            vehicle = self.vehicle_manager.vehicles.get(vehicle_id)
+            if not vehicle or vehicle['status'] != 'idle':
+                continue
+
+            current_grid = vehicle['current_grid']
+            row, col = divmod(current_grid, grid_cols)
+
+            choices = [(row - 1, col), (row + 1, col), (row, col - 1), (row, col + 1), (row, col)]
+            target_row, target_col = random.choice(choices)
+
+            if not (0 <= target_row < grid_rows and 0 <= target_col < grid_cols):
+                target_row, target_col = row, col
+
+            target_grid = target_row * grid_cols + target_col
+            if self.vehicle_manager.start_dispatching(vehicle_id, target_grid, self.simulation_time):
+                dispatch_success += 1
+
+        return {'dispatch_success': dispatch_success, 'dispatch_total': dispatch_total}
 
