@@ -115,14 +115,14 @@ def test_baseline_matching():
 
     # 判断修复效果
     print("\n预期效果分析:")
-    print(f"  - 距离限制: 3格以内 (约 {3 * 1.5:.1f}分钟 = {3 * 90}秒)")
+    print(f"  - 距离限制: 2格以内 (约 {2 * 1.5:.1f}分钟 = {2 * 90}秒)")
     print(f"  - 最大等待: {config.MAX_WAITING_TIME}秒 (5分钟)")
-    print(f"  - 理论匹配率: 应该在20%-40%之间（受距离和时间双重限制）")
+    print(f"  - 理论匹配率: 应该在10%-25%之间（严格距离限制）")
 
-    if metrics['match_rate'] < 0.15:
-        print("\n✗ 匹配率过低，可能存在其他问题")
-    elif metrics['match_rate'] > 0.60:
-        print("\n✗ 匹配率过高，距离限制可能没生效")
+    if metrics['match_rate'] < 0.05:
+        print("\n✗ 匹配率过低(<5%)，限制过于严格")
+    elif metrics['match_rate'] > 0.40:
+        print("\n✗ 匹配率过高(>40%)，距离限制可能没生效")
     else:
         print("\n✓ 匹配率合理，距离限制正常工作")
 
