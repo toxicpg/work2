@@ -384,6 +384,16 @@ class OrderMatcher:
                         if vehicle_id in available_vehicle_ids:
                             euclidean_distance = distances[i]
                             vehicle_grid = vehicle_manager.vehicles[vehicle_id]['current_grid']
+
+                            # ✅ 计算曼哈顿距离（网格数）
+                            v_row, v_col = divmod(vehicle_grid, grid_cols)
+                            manhattan_distance = abs(v_row - order_row) + abs(v_col - order_col)
+
+                            # ✅ 距离限制：不能超过2格
+                            # MAX_WAITING_TIME=300秒，每格90秒，所以2格 = 180秒
+                            if manhattan_distance > 2:
+                                continue  # 跳过太远的车辆
+
                             travel_time = vehicle_manager._calculate_travel_time(vehicle_grid, order_grid)
                             cost = self.euclidean_weight * euclidean_distance + self.travel_time_weight * travel_time
                             if cost < min_cost:
