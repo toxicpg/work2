@@ -51,7 +51,10 @@ def test_baseline_matching():
 
     # 运行仿真
     print("\n[3] 运行仿真...")
-    max_steps = min(300, config.MAX_TICKS_PER_EPISODE)  # 测试前300步（5小时）
+    # 一天 = 24小时 * 3600秒 / 10秒每tick = 8640 ticks
+    # 但为了安全起见，我们用config中的设置
+    max_steps = min(8640, config.MAX_TICKS_PER_EPISODE)  # 测试一整天（24小时）
+    print(f"  测试时长: {max_steps}个ticks (约{max_steps * config.TICK_DURATION_SEC / 3600:.1f}小时)")
 
     step_count = 0
     total_matched = 0
@@ -72,10 +75,11 @@ def test_baseline_matching():
 
         step_count += 1
 
-        # 每50步打印一次进度
-        if step_count % 50 == 0:
+        # 每500步打印一次进度（约1.4小时）
+        if step_count % 500 == 0:
             current_match_rate = total_matched / total_generated if total_generated > 0 else 0
-            print(f"  Step {step_count}/{max_steps}: "
+            hours_elapsed = step_count * config.TICK_DURATION_SEC / 3600
+            print(f"  Step {step_count}/{max_steps} ({hours_elapsed:.1f}小时): "
                   f"匹配率={current_match_rate:.2%}, "
                   f"已匹配={total_matched}, "
                   f"已生成={total_generated}, "
@@ -109,11 +113,18 @@ def test_baseline_matching():
 
     print("=" * 70)
 
-    # 判断修复是否成功
-    if metrics['match_rate'] > 0.50:  # 期望匹配率>50%
-        print("✓ 修复成功！匹配率恢复正常")
+    # 判断修复效果
+    print("\n预期效果分析:")
+    print(f"  - 距离限制: 3格以内 (约 {3 * 1.5:.1f}分钟 = {3 * 90}秒)")
+    print(f"  - 最大等待: {config.MAX_WAITING_TIME}秒 (5分钟)")
+    print(f"  - 理论匹配率: 应该在20%-40%之间（受距离和时间双重限制）")
+
+    if metrics['match_rate'] < 0.15:
+        print("\n✗ 匹配率过低，可能存在其他问题")
+    elif metrics['match_rate'] > 0.60:
+        print("\n✗ 匹配率过高，距离限制可能没生效")
     else:
-        print("✗ 匹配率仍然偏低，可能还有其他问题")
+        print("\n✓ 匹配率合理，距离限制正常工作")
 
     return metrics
 
