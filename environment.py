@@ -677,9 +677,32 @@ class RideHailingEnvironment:
 
         self.vehicle_manager.reset()
 
-        # ✅ 初始化所有车辆的idle_since为当前时间
-        for vehicle in self.vehicle_manager.vehicles.values():
-            vehicle['idle_since'] = self.simulation_time
+        # ✅ 冷启动：所有车辆设置为serving，随机安排1-10分钟内释放
+        vehicle_ids = list(self.vehicle_manager.vehicles.keys())
+        self._warmup_schedule = {}  # 记录每辆车何时变idle
+
+        for v_id in vehicle_ids:
+            vehicle = self.vehicle_manager.vehicles[v_id]
+
+            # 随机分配一个释放时间（1-10分钟 = 60-600秒）
+            warmup_duration_sec = random.uniform(60, 600)
+            release_time = self.simulation_time + pd.Timedelta(seconds=warmup_duration_sec)
+
+            # 所有车辆初始状态为serving
+            vehicle['status'] = 'serving'
+            vehicle['idle_since'] = None
+            vehicle['assigned_order'] = {
+                'id': f'warmup_{v_id}',
+                'timestamp': self.simulation_time,
+                'grid_index': vehicle['current_grid'],
+                'warmup_release_time': release_time  # 记录释放时间
+            }
+
+            # 记录到调度表
+            self._warmup_schedule[v_id] = release_time
+
+        print(f"  冷启动: {len(vehicle_ids)}辆车设置为serving状态，"
+              f"将在1-10分钟内逐渐变为空闲")
 
         self.reward_calculator.reset()
         return self._get_state()
@@ -703,6 +726,32 @@ class RideHailingEnvironment:
             print(f"DEBUG Step {self.episode_step}: Starting step at time {self.simulation_time}")
 
         try:
+            # 0) 冷启动处理：检查是否有热身车辆应该在当前Tick释放
+            if hasattr(self, '_warmup_schedule') and self._warmup_schedule:
+                vehicles_to_release = []
+                for v_id, release_time in list(self._warmup_schedule.items()):
+                    # 如果当前时间 >= 释放时间，则释放该车辆
+                    if self.simulation_time >= release_time:
+                        vehicles_to_release.append(v_id)
+
+                if vehicles_to_release:
+                    for v_id in vehicles_to_release:
+                        vehicle = self.vehicle_manager.vehicles.get(v_id)
+                        if vehicle and vehicle.get('status') == 'serving':
+                            order = vehicle.get('assigned_order', {})
+                            if order.get('id', '').startswith('warmup_'):
+                                # 释放车辆：变为idle
+                                vehicle['status'] = 'idle'
+                                vehicle['idle_since'] = self.simulation_time
+                                vehicle['assigned_order'] = None
+
+                        # 从调度表中移除
+                        if v_id in self._warmup_schedule:
+                            del self._warmup_schedule[v_id]
+
+                    if self.episode_step <= 100:  # 只在前100个Tick打印
+                        print(f"  Tick {self.episode_step}: 冷启动释放 {len(vehicles_to_release)} 辆车")
+
             # 1) 处理到期事件（完成订单等）
             self._process_events(self.simulation_time, step_info)
 
