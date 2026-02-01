@@ -389,9 +389,9 @@ class OrderMatcher:
                             v_row, v_col = divmod(vehicle_grid, grid_cols)
                             manhattan_distance = abs(v_row - order_row) + abs(v_col - order_col)
 
-                            # ✅ 距离限制：不能超过2格
-                            # MAX_WAITING_TIME=300秒，每格90秒，所以2格 = 180秒
-                            if manhattan_distance > 2:
+                            # ✅ 距离限制：不能超过1格
+                            # 非常严格的限制：只匹配相邻或同一格的车辆
+                            if manhattan_distance > 1:
                                 continue  # 跳过太远的车辆
 
                             travel_time = vehicle_manager._calculate_travel_time(vehicle_grid, order_grid)
