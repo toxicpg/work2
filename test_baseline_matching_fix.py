@@ -43,9 +43,10 @@ def test_baseline_matching():
     print(f"  测试日期: {test_day}")
     print(f"  订单数量: {len(day_orders)}")
 
-    # 初始化环境（使用random_walk策略）
+    # 初始化环境
     print("\n[2] 初始化环境...")
-    env = BaselineEnvironment(config, data_processor, day_orders, dispatch_policy='random_walk')
+    config.DISPATCH_MODE = 'random_walk'  # 设置为random_walk模式
+    env = BaselineEnvironment(config, data_processor, day_orders)
     env.reset()
 
     # 运行仿真
