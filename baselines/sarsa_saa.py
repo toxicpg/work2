@@ -424,21 +424,10 @@ def run_simulation_phase(phase_name, days_to_run, env, agent, config, round_idx,
 
     for d in pbar:
         try:
-            # 重置环境
-            env.reset()
-            env.current_day = d
-            env.episode_start_day = d
-            env.simulation_time = env.order_generator.time_range[0].normalize() + pd.Timedelta(days=d)
-            if env.simulation_time.tzinfo is None:
-                env.simulation_time = env.simulation_time.tz_localize('Asia/Shanghai')
-            env.current_time = env.simulation_time
-            env.vehicle_manager.reset()
-            env.reward_calculator.reset()
-            env.pending_orders.clear()
-            env.event_queue.clear()
-            env.buffered_orders.clear()
-            env.current_macro_slice_key = None
-            env.daily_stats.clear()
+            # ✅ 使用 reset(start_day=d) 来触发冷启动机制
+            env.reset(start_day=d)
+            # 注意：不要再调用 env.vehicle_manager.reset()，
+            # 因为这会清空冷启动的 _warmup_schedule！
 
             # 清空 buffer
             agent.trajectory_buffer.clear()
