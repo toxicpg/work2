@@ -765,30 +765,8 @@ class BaselineEnvironment:
                     total_wait_time_sec = wait_to_match_sec + wait_for_pickup_sec
                     order['total_wait_time_sec'] = total_wait_time_sec
 
-                    # ============================
-                    # ✅ 新增：匹配后也可能取消（含接驾）
-                    # ============================
-                    if total_wait_time_sec > max_wait:
-                        # 订单直接取消
-                        order['status'] = 'cancelled'
-                        step_info['cancelled_orders'] += 1
-                        self.episode_stats['total_orders_cancelled'] += 1
-
-                        # 把被 assign 的车回滚 idle（否则车会被“吃掉”卡 serving）
-                        vehicle = self.vehicle_manager.vehicles.get(v_id)
-                        if vehicle is not None:
-                            # 只有确实 serving 且 assigned_order 是这单才回滚
-                            if vehicle.get('status') == 'serving' and vehicle.get('assigned_order') is order:
-                                vehicle['status'] = 'idle'
-                                vehicle['assigned_order'] = None
-                                vehicle['idle_since'] = self.simulation_time
-
-                        # 不计入 waiting_times / matched / completion
-                        continue
-
-                    # ============================
-                    # 正常路径：计入等待统计、计入有效匹配
-                    # ============================
+                    # 计入等待统计、计入有效匹配
+                    # (因为匹配器已经过滤掉会超时的车辆，这里不需要再次检查)
                     step_info['waiting_times'].append(total_wait_time_sec)
                     matched_effective += 1
 
