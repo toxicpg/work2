@@ -40,7 +40,7 @@ if project_root not in sys.path:
 try:
     from config import Config
     from utils.data_process import DataProcessor
-    from environment import RideHailingEnvironment
+    from environment_baseline import BaselineEnvironment
     from evaluate import print_evaluation_results
 except ImportError as e:
     print(f"导入错误: {e}")
@@ -59,10 +59,10 @@ def set_seed(seed: int):
 
 
 def _make_env(config, env_data):
-    """统一创建主环境，并强制使用 random_walk 模式（双保险）。"""
+    """统一创建Baseline环境，并强制使用 random_walk 模式（双保险）。"""
     config.DISPATCH_MODE = 'random_walk'
     data_processor = DataProcessor(config)
-    env = RideHailingEnvironment(config, data_processor, env_data)
+    env = BaselineEnvironment(config, data_processor, env_data, dispatch_policy='random_walk')
     return env
 
 

@@ -117,6 +117,16 @@ def main():
 
         # 训练一个 episode (环境内部会使用 trainer 的模型和经验池)
         reward, loss = trainer.train_episode(env, episode)
+
+        # 获取训练指标并显示
+        try:
+            avg_wait = trainer.avg_waiting_times[-1] if trainer.avg_waiting_times else 0.0
+            completion_rate = trainer.completion_rates[-1] if trainer.completion_rates else 0.0
+            print(f"📈 Reward={reward:.2f} | Loss={loss:.4f} | ε={trainer.epsilon:.4f} | "
+                  f"完成率={completion_rate:.1%} | 平均等待={avg_wait:.1f}s")
+        except:
+            print(f"📈 Reward={reward:.2f} | Loss={loss:.4f} | ε={trainer.epsilon:.4f}")
+
         trainer.log_message(f"Episode {episode}: Total Reward={reward:.2f}, Avg Loss={loss:.4f}, Epsilon={trainer.epsilon:.4f}")
 
         # 验证、保存和早停
