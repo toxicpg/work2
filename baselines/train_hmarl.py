@@ -96,7 +96,13 @@ def train_hmarl():
 
         # 初始化环境（使用 'none' 策略，由 Agent 完全接管）
         env = BaselineEnvironment(config, data_processor, day_orders, dispatch_policy='none')
-        env.reset()
+        # 使用 reset(start_day=d) 触发冷启动机制
+        try:
+            day_count = env.order_generator.get_day_count()
+        except Exception:
+            day_count = 0
+        start_day = max(0, day_count - 1)  # 使用最后一天
+        env.reset(start_day=start_day)
 
         # 重置 Agent 状态
         agent.reset_episode()
@@ -140,14 +146,22 @@ def train_hmarl():
                 total_dispatched += dispatch_success_count
 
                 # --- 3. Step Environment ---
-                env.step()
+                _, _, _, info = env.step()
+                step_info = info.get('step_info', {})
 
                 # --- 4. Reward Calculation ---
                 # 外部奖励：基于环境的实际业务指标
-                # 简化版本：订单完成数 - 订单取消数
-                completed_orders = env.reward_calculator.completed_orders
-                cancelled_orders = env.reward_calculator.cancelled_orders
-                external_reward = completed_orders * 10 - cancelled_orders * 5
+                # 从step_info中获取当前tick的业务指标
+                tick_completed = step_info.get('completed_orders', 0)
+                tick_cancelled = step_info.get('cancelled_orders', 0)
+                tick_matched = step_info.get('matched_orders', 0)
+
+                # 外部奖励计算
+                external_reward = (
+                    tick_completed * 10      # 完成订单奖励
+                    - tick_cancelled * 5     # 取消订单惩罚
+                    + tick_matched * 1       # 匹配订单小奖励
+                )
 
                 # 内部奖励：鼓励完成 Manager 的子目标
                 intrinsic_reward = agent.compute_intrinsic_reward(env, dispatch_orders if dispatch_orders else {})

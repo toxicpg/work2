@@ -50,7 +50,7 @@ class SarsaSAABaseline:
         self.sample_size = sample_size
 
         # 调度参数（可动态调整）
-        self.max_dispatch_radius = 10  # 默认最大调度半径
+        self.max_dispatch_radius = 3  # 最大调度半径（匹配环境的3格限制）
 
         # 1. Q表 (Q-Table)
         self.q_table = defaultdict(float)
@@ -241,7 +241,7 @@ class SarsaSAABaseline:
 
             distance = self._manhattan_distance(src, dst)
 
-            if distance > 10:
+            if distance > self.max_dispatch_radius:
                 s_idx += 1
                 continue
 
