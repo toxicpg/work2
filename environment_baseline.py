@@ -417,11 +417,10 @@ class OrderMatcher:
                             v_row, v_col = divmod(vehicle_grid, grid_cols)
                             manhattan_distance = abs(v_row - order_row) + abs(v_col - order_col)
 
-                            # ✅ 第一层过滤：距离限制（必须在同一格）
-                            # 极其严格：只匹配同一个格子内的车辆
-                            # 这会大幅降低匹配率
-                            if manhattan_distance > 0:
-                                continue  # 跳过不在同一格的车辆
+                            # ✅ 第一层过滤：距离限制（3格以内）
+                            # 只匹配距离在3格以内的车辆
+                            if manhattan_distance > 3:
+                                continue  # 跳过距离超过3格的车辆
 
                             travel_time = vehicle_manager._calculate_travel_time(vehicle_grid, order_grid)
 
@@ -875,10 +874,15 @@ class BaselineEnvironment:
             step_info['new_orders'] = len(new_orders)
             self.episode_stats['total_orders_generated'] += len(new_orders)
 
-            # 6) 调度（random_walk or rl）
-            dispatch_mode = getattr(self.config, 'DISPATCH_MODE', 'rl')
+            # 6) 调度（random_walk or random_dispatching or rl）
+            # 优先使用 dispatch_policy（构造函数参数），否则使用 DISPATCH_MODE（config参数）
+            dispatch_policy = getattr(self, 'dispatch_policy', None)
+            dispatch_mode = dispatch_policy if dispatch_policy else getattr(self.config, 'DISPATCH_MODE', 'rl')
+
             if dispatch_mode == 'random_walk':
                 dispatch_info = self._execute_random_walk_dispatch()
+            elif dispatch_mode == 'random_dispatching':
+                dispatch_info = self._execute_random_dispatch_to_hotspots()
             else:
                 dispatch_info = self._execute_proactive_dispatch(current_epsilon)
 
@@ -1364,6 +1368,7 @@ class BaselineEnvironment:
             print("模型已从环境移除。")
     # =====================
     def _execute_random_walk_dispatch(self):
+        """Random Walk: 随机移动到相邻格子或停留"""
         idle_vehicle_ids = self.vehicle_manager.get_long_idle_vehicles(
             self.simulation_time, self.config.IDLE_THRESHOLD_SEC
         )
@@ -1393,4 +1398,40 @@ class BaselineEnvironment:
                 dispatch_success += 1
 
         return {'dispatch_success': dispatch_success, 'dispatch_total': dispatch_total}
+
+    def _execute_random_dispatch_to_hotspots(self):
+        """Random Dispatch: 随机调度到全局热点格子"""
+        idle_vehicle_ids = self.vehicle_manager.get_long_idle_vehicles(
+            self.simulation_time, self.config.IDLE_THRESHOLD_SEC
+        )
+        if not idle_vehicle_ids:
+            return {'dispatch_success': 0, 'dispatch_total': 0}
+
+        dispatch_total = len(idle_vehicle_ids)
+        dispatch_success = 0
+
+        # 获取所有可用的热点格子（action space）
+        if not hasattr(self, 'action_to_grid') or not self.action_to_grid:
+            # 如果没有action_mapping，使用所有格子
+            available_grids = list(range(self.config.NUM_GRIDS))
+        else:
+            # 使用action_mapping中的热点格子
+            available_grids = list(self.action_to_grid.values())
+
+        if not available_grids:
+            return {'dispatch_success': 0, 'dispatch_total': 0}
+
+        for vehicle_id in idle_vehicle_ids:
+            vehicle = self.vehicle_manager.vehicles.get(vehicle_id)
+            if not vehicle or vehicle['status'] != 'idle':
+                continue
+
+            # 随机选择一个热点格子
+            target_grid = random.choice(available_grids)
+
+            # 开始调度
+            if self.vehicle_manager.start_dispatching(vehicle_id, target_grid, self.simulation_time):
+                dispatch_success += 1
+
+        return {'dispatch_success': dispatch_success, 'dispatch_total': dispatch_success}
 

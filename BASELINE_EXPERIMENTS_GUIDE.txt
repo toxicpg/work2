@@ -1,252 +1,236 @@
-╔════════════════════════════════════════════════════════════════════════════╗
-║                    Baseline对比实验运行指南                                 ║
-╚════════════════════════════════════════════════════════════════════════════╝
+================================================================================
+  🚗 Baseline 实验执行指南
+================================================================================
 
-【实验配置】
+【实验设计】
+
+实验1: 均匀分布 × 不同车辆数
+  - 车辆数: 1800, 2000, 2200
+  - 分布: 均匀随机分布
+  - 天数: 最后7天
+  - Baseline: Random Walk + Random Dispatch
+
+实验2: 不同初始分布 × 固定车辆数
+  - 车辆数: 2000
+  - 分布: 正态分布 (σ=1, 3, 5, 7)
+  - 天数: 1天（最后一天）
+  - Baseline: Random Walk + Random Dispatch
+
+【记录指标】
+  ✓ 等待时间 (avg_waiting_time)
+  ✓ 匹配率 (match_rate)
+  ✓ 完成率 (completion_rate)
+  ✓ 取消率 (cancel_rate)
+
+================================================================================
+  📋 执行命令
+================================================================================
+
+【方式1】一键运行所有实验（推荐）
 ────────────────────────────────────────────────────────────────────────────
-车辆数量: 1800, 2000, 2200
-Baseline方法: Random Walk, Random Dispatch, SARSA-SAA, H-MARL, CNN-DDQN
-总实验数: 3 × 5 = 15 个
+python run_baseline_experiments.py
+
+预计时间: 约 40-50 分钟
+  - 实验1: 3车辆数 × 2算法 × 7天 = 42天模拟 (~30分钟)
+  - 实验2: 4分布 × 2算法 × 1天 = 8天模拟 (~10分钟)
 
 
-【方法1: 自动批量运行（推荐）】
+【方式2】分别运行
 ────────────────────────────────────────────────────────────────────────────
-一键运行所有配置:
+# 只运行实验1
+python run_baseline_experiments.py --exp 1
 
-    python run_baselines_all_vehicles.py
-
-特点:
-  ✓ 自动切换车辆数量配置
-  ✓ 自动运行所有5个baseline
-  ✓ 自动备份和恢复config.py
-  ✓ 生成完整实验报告
-  ✓ 预计总时间: 5-8小时
-
-结果保存位置:
-  - results/vehicles_1800/baselines/
-  - results/vehicles_2000/baselines/
-  - results/vehicles_2200/baselines/
+# 只运行实验2
+python run_baseline_experiments.py --exp 2
 
 
-【方法2: 手动逐个运行】
+【方式3】手动运行单个baseline（如需调试）
 ────────────────────────────────────────────────────────────────────────────
-适合分步执行或单独测试某个配置
+# Random Walk (7天)
+python baselines/random_walk.py
 
-步骤1: 修改config.py
-  打开 config.py, 找到:
-    TOTAL_VEHICLES = 2000
+# Random Dispatch (7天)
+python baselines/random_dispatch.py
 
-  改为你想测试的数量:
-    TOTAL_VEHICLES = 1800  # 或 2000, 或 2200
+================================================================================
+  📊 输出结果
+================================================================================
 
-步骤2: 运行单个baseline
-  python baselines/random_walk.py      # 快速 (~5分钟)
-  python baselines/random_dispatch.py  # 快速 (~5分钟)
-  python baselines/sarsa_saa.py        # 中等 (~20分钟)
-  python baselines/train_hmarl.py      # 较慢 (~40分钟)
-  python baselines/cnn_ddqn.py         # 较慢 (~40分钟)
-
-步骤3: 重复步骤1-2
-  为每个车辆数量重复以上步骤
-
-
-【方法3: 选择性运行】
+结果文件位置:
 ────────────────────────────────────────────────────────────────────────────
-只运行部分baseline或部分车辆配置
-
-修改 run_baselines_all_vehicles.py:
-
-  VEHICLE_COUNTS = [2000]  # 只测试2000辆车
-
-  BASELINE_SCRIPTS = {
-      'cnn_ddqn': 'baselines/cnn_ddqn.py',  # 只运行CNN-DDQN
-  }
-
-然后运行:
-  python run_baselines_all_vehicles.py
+results/baseline_experiments/
+├── exp1_uniform_vehicles_20260203_143520.csv    # 实验1结果
+└── exp2_distributions_20260203_143520.csv       # 实验2结果
 
 
-【各Baseline方法详情】
+CSV文件包含字段:
 ────────────────────────────────────────────────────────────────────────────
-
-1. Random Walk (随机游走)
-   文件: baselines/random_walk.py
-   训练: 不需要
-   时间: ~5分钟
-   特点: 最简单的baseline，作为性能下界
-
-2. Random Dispatch (随机派遣)
-   文件: baselines/random_dispatch.py
-   训练: 不需要
-   时间: ~5分钟
-   特点: 考虑热点区域的简单策略
-
-3. SARSA-SAA
-   文件: baselines/sarsa_saa.py
-   训练: 需要
-   时间: ~20分钟
-   特点: 传统强化学习方法 + 历史数据采样
-
-4. H-MARL (MFuN)
-   文件: baselines/train_hmarl.py
-   训练: 需要
-   时间: ~40分钟
-   特点: 层级多智能体强化学习
-
-5. CNN-DDQN ⭐ 新增
-   文件: baselines/cnn_ddqn.py
-   训练: 需要
-   时间: ~40分钟
-   特点: 卷积神经网络 + Dueling DQN
-   用途: 对比验证图卷积网络(MGCN)的优势
+- experiment: 实验编号 (Exp1_Uniform / Exp2_Distribution)
+- baseline: 算法名称 (Random Walk / Random Dispatch)
+- num_vehicles: 车辆数
+- distribution: 分布类型 (均匀 / 正态(σ=X))
+- std: 标准差值
+- day_index: 天数索引
+- match_rate: 匹配率 ⭐
+- completion_rate: 完成率
+- avg_waiting_time: 平均等待时间(秒) ⭐
+- cancel_rate: 取消率
+- total_new_orders: 新订单总数
+- matched_orders: 匹配订单数
+- completed_orders: 完成订单数
+- cancelled_orders: 取消订单数
+- total_revenue: 总收入
 
 
-【结果文件结构】
+屏幕输出示例:
 ────────────────────────────────────────────────────────────────────────────
-results/
-├── vehicles_1800/
-│   └── baselines/
-│       ├── random_walk_results_*.json
-│       ├── random_dispatch_results_*.json
-│       ├── sarsa_saa_results_*.json
-│       ├── hmarl_results_*.json
-│       └── cnn_ddqn_results_*.json
-├── vehicles_2000/
-│   └── baselines/
-│       └── (同上)
-└── vehicles_2200/
-    └── baselines/
-        └── (同上)
-
-
-【结果JSON格式】
+实验1: 均匀分布 × 不同车辆数 (最后7天)
 ────────────────────────────────────────────────────────────────────────────
-每个结果文件包含:
+车辆数: 1800
+  → Random Walk...
+      完成率=42.35%, 匹配率=58.12%, 等待=185.3s
+  → Random Dispatch...
+      完成率=45.67%, 匹配率=62.45%, 等待=172.8s
 
-{
-  "method": "方法名称",
-  "vehicle_count": 车辆数量,
-  "avg_results": {
-    "completion_rate": 0.XX,      // 完成率
-    "cancel_rate": 0.XX,          // 取消率
-    "avg_waiting_time": XXX.X,    // 平均等待时间(秒)
-    "vehicle_utilization": 0.XX,  // 车辆利用率
-    "avg_total_revenue": XXXX.X   // 平均总收入
-  },
-  "daily_results": [...]          // 每天的详细结果
-}
+车辆数: 2000
+  → Random Walk...
+      完成率=48.21%, 匹配率=64.33%, 等待=165.2s
+  ...
 
-
-【实验监控】
+实验2: 不同初始分布 × 2000辆车 (只跑1天)
 ────────────────────────────────────────────────────────────────────────────
-运行时会实时显示:
-  ✓ 当前车辆配置
-  ✓ 当前运行的baseline
-  ✓ 训练进度条
-  ✓ 实时指标(Loss, Reward等)
-  ✓ 完成时间和状态
+正态分布: σ = 1.0
+  → Random Walk...
+      完成率=38.12%, 匹配率=52.45%, 等待=210.5s
+  → Random Dispatch...
+      完成率=41.23%, 匹配率=56.78%, 等待=195.3s
+...
 
+================================================================================
+  📈 结果分析
+================================================================================
 
-【故障排查】
+使用 Python 分析结果:
 ────────────────────────────────────────────────────────────────────────────
+import pandas as pd
 
-问题1: "CUDA out of memory"
-解决:
-  - 打开config.py, 设置 DEVICE = 'cpu'
-  - 或减小 BATCH_SIZE
+# 读取结果
+df1 = pd.read_csv('results/baseline_experiments/exp1_uniform_vehicles_*.csv')
+df2 = pd.read_csv('results/baseline_experiments/exp2_distributions_*.csv')
 
-问题2: 某个baseline运行失败
-解决:
-  - 查看错误信息
-  - 单独运行该baseline调试
-  - 可以跳过该baseline，继续运行其他的
+# 实验1: 车辆数对性能的影响
+df1.groupby(['baseline', 'num_vehicles'])['match_rate'].mean()
 
-问题3: config.py未正确恢复
-解决:
-  - 查看是否有 config.py.backup
-  - 手动恢复: cp config.py.backup config.py
+# 实验2: 初始分布对性能的影响
+df2.groupby(['baseline', 'std'])[['match_rate', 'avg_waiting_time']].mean()
 
-问题4: 中断后如何继续
-解决:
-  - 查看已完成的实验结果
-  - 修改脚本，只运行未完成的部分
+# 对比两个算法
+df1.groupby('baseline')[['match_rate', 'avg_waiting_time']].mean()
 
 
-【实验完成后】
+使用 Excel 分析:
 ────────────────────────────────────────────────────────────────────────────
+1. 打开 CSV 文件
+2. 创建数据透视表:
+   - 行: baseline, num_vehicles (实验1) 或 distribution (实验2)
+   - 值: 平均 match_rate, 平均 avg_waiting_time
+3. 生成图表对比
 
-1. 收集所有结果:
-   - 检查 results/vehicles_*/baselines/ 目录
-   - 确保每个配置都有5个结果文件
+================================================================================
+  ⚙️ 关键参数说明
+================================================================================
 
-2. 生成对比图表:
-   python utils/shiyantu.py
-
-3. 分析结果:
-   - 对比不同车辆数量下的性能
-   - 对比不同方法的优劣
-   - CNN-DDQN vs 你的MGCN方法
-
-4. 撰写论文:
-   - 使用生成的图表
-   - 引用baseline方法的文献
-   - 分析MGCN的优势
-
-
-【预期结果排序】
+Baseline 环境配置 (environment_baseline.py):
 ────────────────────────────────────────────────────────────────────────────
-完成率 (从低到高):
-  Random Walk < Random Dispatch < SARSA-SAA ≈ H-MARL ≈ CNN-DDQN < MGCN(你的)
+- 匹配距离限制: 3格 (曼哈顿距离)
+- 冷启动机制: 初始所有车辆serving，1-10分钟内随机释放
+- 冷却机制: 完成订单后需等待当前tick结束才能再次接单
 
-等待时间 (从高到低):
-  Random Walk > Random Dispatch > SARSA-SAA ≈ H-MARL ≈ CNN-DDQN > MGCN(你的)
-
-
-【时间估算】
+Random Walk:
 ────────────────────────────────────────────────────────────────────────────
-单个车辆配置 (5个baseline):
-  Random Walk:     5分钟
-  Random Dispatch: 5分钟
-  SARSA-SAA:      20分钟
-  H-MARL:         40分钟
-  CNN-DDQN:       40分钟
-  ─────────────────────
-  小计:         ~110分钟
+- 空闲阈值: 300秒 (5分钟)
+- 动作: 随机移动到相邻格子 (上/下/左/右/停留)
 
-全部3个车辆配置:
-  110分钟 × 3 = 330分钟 ≈ 5.5小时
-
-建议:
-  - 在GPU服务器上运行
-  - 夜间或周末运行
-  - 使用 nohup 或 screen 保持后台运行
-
-
-【快速命令参考】
+Random Dispatch:
 ────────────────────────────────────────────────────────────────────────────
+- 空闲阈值: 300秒 (5分钟)
+- 动作: 随机调度到179个全局热点格子之一
 
-# 查看帮助
-python run_baselines_all_vehicles.py --help
-
-# 完整运行
-python run_baselines_all_vehicles.py
-
-# 后台运行 (Linux/Mac)
-nohup python run_baselines_all_vehicles.py > baseline_experiments.log 2>&1 &
-
-# 查看运行日志
-tail -f baseline_experiments.log
-
-# 测试单个方法
-python baselines/cnn_ddqn.py
-
-
-【联系与支持】
+车辆分布生成:
 ────────────────────────────────────────────────────────────────────────────
-如遇问题:
-  1. 查看 baselines/README_BASELINES.md
-  2. 检查错误日志
-  3. 单独测试失败的baseline
+- 均匀分布: rng.integers(0, 400, num_vehicles)
+- 正态分布: 中心(9.5, 9.5), 标准差σ, 裁剪到[0,19]
 
-祝实验顺利！🎉
+================================================================================
+  🐛 常见问题
+================================================================================
+
+Q1: 匹配率太低(<20%)或太高(>90%)
+────────────────────────────────────────────────────────────────────────────
+A: 检查 environment_baseline.py 中的距离限制:
+   grep "manhattan_distance > 3" environment_baseline.py
+   应该看到: if manhattan_distance > 3: continue
+
+Q2: Random Dispatch 没有执行调度
+────────────────────────────────────────────────────────────────────────────
+A: 检查方法是否存在:
+   grep "_execute_random_dispatch_to_hotspots" environment_baseline.py
+
+Q3: 实验运行时间太长
+────────────────────────────────────────────────────────────────────────────
+A: 可以分别运行实验1和实验2:
+   python run_baseline_experiments.py --exp 1  # 只跑实验1
+   python run_baseline_experiments.py --exp 2  # 只跑实验2
+
+Q4: 内存不足
+────────────────────────────────────────────────────────────────────────────
+A: 减少车辆数或分批运行
+
+================================================================================
+  📞 在另一台机器上运行
+================================================================================
+
+1. 同步代码:
+────────────────────────────────────────────────────────────────────────────
+git add .
+git commit -m "添加baseline批量实验脚本"
+git push origin my-experiments
+
+# 在另一台机器上
+git pull origin my-experiments
+
+2. 验证文件:
+────────────────────────────────────────────────────────────────────────────
+ls -lh run_baseline_experiments.py
+ls -lh environment_baseline.py
+
+3. 运行实验:
+────────────────────────────────────────────────────────────────────────────
+python run_baseline_experiments.py
+
+4. 下载结果:
+────────────────────────────────────────────────────────────────────────────
+scp user@server:/path/to/work2/results/baseline_experiments/*.csv ./
+
+================================================================================
+  ✅ 检查清单
+================================================================================
+
+运行前检查:
+  □ Python 环境已激活
+  □ 依赖包已安装 (numpy, pandas, torch, tqdm)
+  □ 数据文件存在 (data/processed/orders_*.parquet)
+  □ 配置文件正确 (config.py)
+  □ environment_baseline.py 中距离限制为3格
+
+运行后检查:
+  □ CSV文件已生成
+  □ 匹配率在合理范围 (30%-70%)
+  □ 等待时间有记录
+  □ 没有大量错误信息
+
+================================================================================
+
+最后更新: 2026-02-03
+创建者: CatPaw AI Assistant
 
