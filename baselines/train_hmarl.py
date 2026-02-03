@@ -53,10 +53,23 @@ def train_hmarl():
     print(f"\n[数据加载]")
     data_processor = DataProcessor(config)
     all_orders = data_processor.load_and_process_orders()
-    all_orders['date'] = all_orders['timestamp'].dt.date
-    train_days = sorted(all_orders['date'].unique())
+
+    # 按时间划分数据集：训练/验证/测试
+    train_orders, val_orders, test_orders = data_processor.split_data_by_time(
+        all_orders, config.TRAIN_RATIO, config.VAL_RATIO
+    )
+
+    # 获取训练天数
+    train_orders['date'] = train_orders['timestamp'].dt.date
+    train_days = sorted(train_orders['date'].unique())
     print(f"  训练天数: {len(train_days)}")
-    print(f"  日期范围: {train_days[0]} ~ {train_days[-1]}")
+    print(f"  训练日期范围: {train_days[0]} ~ {train_days[-1]}")
+
+    # 获取验证天数
+    val_orders['date'] = val_orders['timestamp'].dt.date
+    val_days = sorted(val_orders['date'].unique())
+    print(f"  验证天数: {len(val_days)}")
+    print(f"  验证日期范围: {val_days[0]} ~ {val_days[-1]}")
 
     # 3. Agent
     print(f"\n[智能体初始化]")
@@ -91,18 +104,13 @@ def train_hmarl():
         print(f"  训练日期: {current_day}")
 
         # 准备环境数据
-        day_orders = all_orders[all_orders['date'] == current_day]
+        day_orders = train_orders[train_orders['date'] == current_day]
         print(f"  订单数量: {len(day_orders)}")
 
         # 初始化环境（使用 'none' 策略，由 Agent 完全接管）
         env = BaselineEnvironment(config, data_processor, day_orders, dispatch_policy='none')
-        # 使用 reset(start_day=d) 触发冷启动机制
-        try:
-            day_count = env.order_generator.get_day_count()
-        except Exception:
-            day_count = 0
-        start_day = max(0, day_count - 1)  # 使用最后一天
-        env.reset(start_day=start_day)
+        # 触发冷启动机制（start_day=0即可，因为day_orders只有一天数据）
+        env.reset(start_day=0)
 
         # 重置 Agent 状态
         agent.reset_episode()

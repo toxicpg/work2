@@ -242,7 +242,8 @@ class MFuN_Agent:
                            if v['status'] != 'idle' and v['current_grid'] == grid_id])
 
             # 订单数 (pending orders in this grid)
-            orders = len([o for o in env.order_generator.pending_orders
+            pending_orders = getattr(env, 'pending_orders', [])
+            orders = len([o for o in pending_orders
                         if o.get('origin_grid', -1) == grid_id])
 
             # 时间特征
@@ -270,7 +271,8 @@ class MFuN_Agent:
                        if v['status'] != 'idle' and v['current_grid'] == grid_id])
 
         # 订单数
-        orders = len([o for o in env.order_generator.pending_orders
+        pending_orders = getattr(env, 'pending_orders', [])
+        orders = len([o for o in pending_orders
                     if o.get('origin_grid', -1) == grid_id])
 
         # 时间特征
@@ -363,20 +365,8 @@ class MFuN_Agent:
             dispatch_plan: {vehicle_id: target_grid_id}
         """
         if not self.use_milp:
-            # 降级方案：选择概率最高且在3格内的grid
-            # 过滤出3格内的grid
-            src_row, src_col = grid_id // 20, grid_id % 20
-            valid_grids = []
-            for g in range(self.num_grids):
-                dst_row, dst_col = g // 20, g % 20
-                if abs(src_row - dst_row) + abs(src_col - dst_col) <= 3:
-                    valid_grids.append((g, target_grids_probs[g].item()))
-
-            if not valid_grids:
-                return {}
-
-            # 选择概率最高的grid
-            dst_grid = max(valid_grids, key=lambda x: x[1])[0]
+            # 降级方案：直接选择概率最高的grid
+            dst_grid = torch.argmax(target_grids_probs).item()
             idle_vehs = [v_id for v_id, v in env.vehicle_manager.vehicles.items()
                         if v['status'] == 'idle' and v['current_grid'] == grid_id]
             if len(idle_vehs) > 0 and sub_goal < -0.5:
@@ -394,7 +384,8 @@ class MFuN_Agent:
 
             # 2. 获取需求预测（当前各grid的订单数）
             demand = np.zeros(self.num_grids)
-            for order in env.order_generator.pending_orders:
+            pending_orders = getattr(env, 'pending_orders', [])
+            for order in pending_orders:
                 origin = order.get('origin_grid', -1)
                 if 0 <= origin < self.num_grids:
                     demand[origin] += 1
@@ -408,25 +399,18 @@ class MFuN_Agent:
                 for g in range(self.num_grids):
                     x[v_id, g] = LpVariable(f"x_{v_id}_{g}", cat='Binary')
 
-            # 目标函数：最大化期望收益（只考虑3格内的调度）
+            # 目标函数：最大化期望收益
             objective = 0
             for v_id, v in available_vehicles:
                 for g in range(self.num_grids):
-                    # 计算曼哈顿距离
-                    src_row, src_col = grid_id // 20, grid_id % 20
-                    dst_row, dst_col = g // 20, g % 20
-                    dispatch_distance = abs(src_row - dst_row) + abs(src_col - dst_col)
-
-                    # 距离限制：只考虑3格内的调度
-                    if dispatch_distance > 3:
-                        continue
-
                     # 收益 = 目标grid的需求 × Worker的偏好概率
                     expected_revenue = demand[g] * target_grids_probs[g].item()
-                    # 成本 = 调度距离（曼哈顿距离）
-                    dispatch_cost = dispatch_distance * 0.1
+                    # 成本 = 调度距离（简化为欧氏距离）
+                    src_row, src_col = grid_id // 20, grid_id % 20
+                    dst_row, dst_col = g // 20, g % 20
+                    dispatch_cost = abs(src_row - dst_row) + abs(src_col - dst_col)
 
-                    objective += x[v_id, g] * (expected_revenue - dispatch_cost)
+                    objective += x[v_id, g] * (expected_revenue - dispatch_cost * 0.1)
 
             prob += objective
 
@@ -460,18 +444,8 @@ class MFuN_Agent:
 
         except Exception as e:
             print(f"MILP求解失败: {e}, 使用降级方案")
-            # 降级：简单启发式（遵守3格距离限制）
-            src_row, src_col = grid_id // 20, grid_id % 20
-            valid_grids = []
-            for g in range(self.num_grids):
-                dst_row, dst_col = g // 20, g % 20
-                if abs(src_row - dst_row) + abs(src_col - dst_col) <= 3:
-                    valid_grids.append((g, target_grids_probs[g].item()))
-
-            if not valid_grids:
-                return {}
-
-            dst_grid = max(valid_grids, key=lambda x: x[1])[0]
+            # 降级：简单启发式
+            dst_grid = torch.argmax(target_grids_probs).item()
             idle_vehs = [v_id for v_id, _ in available_vehicles]
             if len(idle_vehs) > 0 and sub_goal < -0.5:
                 return {idle_vehs[0]: dst_grid}
@@ -515,18 +489,15 @@ class MFuN_Agent:
                 best_grid = dispatch_plan[v_id]  # 默认保持原计划
 
                 for g in range(self.num_grids):
-                    # 计算曼哈顿距离
+                    # 需求分数
+                    pending_orders = getattr(env, 'pending_orders', [])
+                    demand = len([o for o in pending_orders
+                                if o.get('origin_grid', -1) == g])
+
+                    # 距离惩罚
                     src_row, src_col = current_grid // 20, current_grid % 20
                     dst_row, dst_col = g // 20, g % 20
                     distance = abs(src_row - dst_row) + abs(src_col - dst_col)
-
-                    # 距离限制：只考虑3格内
-                    if distance > 3:
-                        continue
-
-                    # 需求分数
-                    demand = len([o for o in env.order_generator.pending_orders
-                                if o.get('origin_grid', -1) == g])
 
                     # 综合评分
                     score = demand * 2.0 - distance * 0.5
