@@ -107,8 +107,9 @@ class CNNFeatureExtractor(nn.Module):
         batch_size = node_features.shape[0]
 
         # Reshape: (B, 400, 5) -> (B, 5, 20, 20)
-        grid_2d = node_features.view(batch_size, self.grid_rows, self.grid_cols, self.input_channels)
-        grid_2d = grid_2d.permute(0, 3, 1, 2)  # (B, 5, 20, 20)
+        # 使用 reshape 而不是 view，可以处理不连续的张量
+        grid_2d = node_features.reshape(batch_size, self.grid_rows, self.grid_cols, self.input_channels)
+        grid_2d = grid_2d.permute(0, 3, 1, 2).contiguous()  # (B, 5, 20, 20)
 
         # CNN 特征提取
         x = F.relu(self.bn1(self.conv1(grid_2d)))  # (B, 32, 20, 20)
@@ -116,7 +117,7 @@ class CNNFeatureExtractor(nn.Module):
         x = F.relu(self.bn3(self.conv3(x)))        # (B, 64, 20, 20)
 
         # Flatten
-        cnn_features = x.view(batch_size, -1)  # (B, 25600)
+        cnn_features = x.reshape(batch_size, -1)  # (B, 25600)
 
         # 投影到与 MGCN 相同的维度
         output = self.projection(cnn_features)  # (B, hidden_dims[-1])
