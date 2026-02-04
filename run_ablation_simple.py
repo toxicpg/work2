@@ -142,16 +142,30 @@ def run_single_ablation(ablation_type, config, data_processor, neighbor_adj, poi
 
     # 在测试集上评估
     print(f"在测试集上评估 (共 {num_test_episodes} 个Episodes)...")
-    avg_test_results, daily_test_results = evaluate_model(
-        trainer, test_env, num_test_episodes, config, verbose=False
-    )
+    try:
+        avg_test_results, daily_test_results = evaluate_model(
+            trainer, test_env, num_test_episodes, config, verbose=False
+        )
 
-    print(f"\n测试结果:")
-    print(f"  完成率: {avg_test_results['completion_rate']:.2%}")
-    print(f"  取消率: {avg_test_results['cancel_rate']:.2%}")
-    print(f"  平均等待时间: {avg_test_results['avg_waiting_time']:.1f}秒")
-    print(f"  车辆利用率: {avg_test_results['vehicle_utilization']:.2%}")
-    print(f"  总收入: {avg_test_results['avg_total_revenue']:.2f}")
+        print(f"\n测试结果:")
+        print(f"  完成率: {avg_test_results['completion_rate']:.2%}")
+        print(f"  取消率: {avg_test_results['cancel_rate']:.2%}")
+        print(f"  平均等待时间: {avg_test_results['avg_waiting_time']:.1f}秒")
+        print(f"  车辆利用率: {avg_test_results['vehicle_utilization']:.2%}")
+        print(f"  总收入: {avg_test_results['avg_total_revenue']:.2f}")
+    except Exception as e:
+        print(f"\n⚠️  评估过程出错: {e}")
+        print(f"⚠️  跳过评估，但模型已保存！")
+        import traceback
+        traceback.print_exc()
+        # 返回空结果
+        avg_test_results = {
+            'completion_rate': 0.0,
+            'cancel_rate': 0.0,
+            'avg_waiting_time': 0.0,
+            'vehicle_utilization': 0.0,
+            'avg_total_revenue': 0.0
+        }
 
     # 获取总结
     summary = trainer.get_ablation_summary()

@@ -1,0 +1,73 @@
+================================================================================
+🚀 CNN 消融实验训练指南 - 100% 保证保存模型！
+================================================================================
+
+运行命令：
+----------
+cd /path/to/work2
+python run_ablation_simple.py --ablation cnn --train-episodes 10 --test-episodes 7
+
+
+保存位置：
+----------
+模型会自动保存到：
+  results/vehicles_1800/ablation/cnn_ablation_episode_10.pt
+
+日志保存到：
+  results/vehicles_1800/logs/ablation_cnn_YYYYMMDD_HHMMSS.txt
+
+
+保存时机：
+----------
+✅ 训练完成后立即保存（在评估开始之前！）
+✅ 即使评估出错，模型也已经保存了
+✅ 你会看到明确的提示：
+   ============================================================
+   保存模型...
+   ============================================================
+   ✓ 模型已保存: results/vehicles_1800/ablation/cnn_ablation_episode_10.pt
+
+
+验证模型：
+----------
+训练完成后，运行以下命令验证：
+
+ls -lh results/vehicles_1800/ablation/*.pt
+
+应该看到类似：
+-rw-r--r--  1 user  staff   45M Feb  4 17:30 cnn_ablation_episode_10.pt
+
+
+如果评估卡住：
+--------------
+不用担心！模型在评估之前就已经保存了！
+你可以：
+1. 按 Ctrl+C 中断
+2. 模型文件已经在 results/vehicles_1800/ablation/ 目录中
+
+
+后续测试：
+----------
+模型保存后，可以用以下命令在不同配置下测试：
+
+# 测试 2000 辆车
+python test_cnn_ablation.py \
+    --model results/vehicles_1800/ablation/cnn_ablation_episode_10.pt \
+    --vehicles 2000
+
+# 全面测试（多个车辆数 × 多个分布）
+python test_cnn_ablation.py \
+    --model results/vehicles_1800/ablation/cnn_ablation_episode_10.pt \
+    --comprehensive-test
+
+
+预计时间：
+----------
+- 训练 10 episodes: 约 2-4 小时（取决于机器性能）
+- 评估 7 episodes: 约 30-60 分钟
+
+
+================================================================================
+💡 提示：训练过程中你会看到清晰的保存提示，不用担心！
+================================================================================
+

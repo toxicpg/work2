@@ -22,19 +22,33 @@ from environment_baseline import BaselineEnvironment
 
 
 # ==========================================
-# SAA-SARSA Agent 类（修复版）
+# SARSA(λ)-SAA Agent 类
+# ==========================================
+# 算法说明:
+#   - SARSA(λ): 使用资格迹 (Eligibility Traces) 进行时序差分学习
+#   - λ ∈ [0, 1]: 资格迹衰减参数
+#     * λ=0: 标准 SARSA (只看一步)
+#     * λ=0.9: 推荐值 (平衡短期和长期奖励)
+#     * λ=1: Monte Carlo (看整个 episode)
+#   - SAA: Sample Average Approximation 用于需求预测
+#   - 线性规划 (PuLP): 基于预测需求优化调度决策
 # ==========================================
 class SarsaSAABaseline:
     """
-    修复版 SARSA(Δ)-SAA 算法
+    SARSA(λ)-SAA 算法 (使用资格迹)
     基于 Yan et al. (2023) EJOR
+
+    关键特性:
+        - 资格迹 (Eligibility Traces): 一次更新多个历史状态
+        - SAA 需求预测: 使用历史平均预测未来需求
+        - 线性规划优化: 求解最优调度方案
     """
 
-    def __init__(self, config, delta=12, alpha=0.1, gamma=0.99, sample_size=7):
+    def __init__(self, config, lambda_=0.9, alpha=0.1, gamma=0.99, sample_size=7):
         """
         Args:
             config: 全局配置对象
-            delta: 前瞻步数 (Look-ahead periods)
+            lambda_: 资格迹衰减参数 (λ ∈ [0, 1])
             alpha: 学习率 (Learning rate)
             gamma: 折扣因子
             sample_size: SAA 历史样本窗口大小 (|J_t|)
@@ -44,7 +58,7 @@ class SarsaSAABaseline:
         self.grid_rows = config.GRID_SIZE[0]
         self.grid_cols = config.GRID_SIZE[1]
 
-        self.delta = delta
+        self.lambda_ = lambda_  # 资格迹衰减参数
         self.alpha = alpha
         self.gamma = gamma
         self.sample_size = sample_size
@@ -55,19 +69,23 @@ class SarsaSAABaseline:
         # 1. Q表 (Q-Table)
         self.q_table = defaultdict(float)
 
-        # 2. 历史样本库 (History Memory for SAA)
+        # 2. 资格迹表 (Eligibility Traces) - SARSA(λ) 核心
+        self.eligibility_traces = defaultdict(float)
+
+        # 3. 历史样本库 (History Memory for SAA)
         # 结构: {time_slot_id: [order_demand_vector_day1, ...]}
         self.history_samples = defaultdict(list)
 
-        # 3. 轨迹缓冲区 (Trajectory Buffer)
-        self.trajectory_buffer = deque()
+        # 4. 上一步的状态和动作 (用于 SARSA 更新)
+        self.last_state = None
+        self.last_action_value = None
 
-        # 4. 学习率衰减参数
+        # 5. 学习率衰减参数
         self.initial_alpha = alpha
         self.alpha_decay = 0.995
         self.min_alpha = 0.01
 
-        # 5. 探索率
+        # 6. 探索率
         self.epsilon = 1.0
         self.epsilon_decay = 0.995
         self.min_epsilon = 0.1
@@ -268,36 +286,61 @@ class SarsaSAABaseline:
 
     def update_sarsa(self, state_h, action_val, reward):
         """
-        SARSA(Δ) 更新逻辑（修复版）
-        基于论文 Algorithm 1 Line 15-19
+        SARSA(λ) 更新逻辑 (使用资格迹)
+
+        Args:
+            state_h: 当前状态的哈希值
+            action_val: 当前动作的价值估计 (SAA优化的Q值)
+            reward: 即时奖励
         """
-        self.trajectory_buffer.append({
-            'state_h': state_h,
-            'q_val': action_val,
-            'reward': reward
-        })
+        # 如果是第一步,只记录状态和动作,不更新
+        if self.last_state is None:
+            self.last_state = state_h
+            self.last_action_value = action_val
+            # 初始化当前状态的资格迹
+            self.eligibility_traces[state_h] = 1.0
+            return
 
-        # 当缓冲区长度 > Δ 时，更新 Δ 步前的状态
-        if len(self.trajectory_buffer) > self.delta:
-            past_exp = self.trajectory_buffer.popleft()
-            past_state_h = past_exp['state_h']
+        # 计算 TD 误差
+        # δ = R + γ*Q(S', A') - Q(S, A)
+        current_q = self.q_table[state_h]  # Q(S', A')
+        last_q = self.q_table[self.last_state]  # Q(S, A)
+        td_error = reward + self.gamma * current_q - last_q
 
-            # 计算 G_t（带折扣的累积奖励）
-            G_t = 0.0
-            for i, exp in enumerate(self.trajectory_buffer):
-                G_t += (self.gamma ** i) * exp['reward']
+        # 增加上一步状态的资格迹 (accumulating traces)
+        self.eligibility_traces[self.last_state] += 1.0
 
-            # TD 误差
-            old_q = self.q_table[past_state_h]
-            td_error = G_t - old_q
+        # 更新所有具有资格迹的状态
+        states_to_remove = []
+        for state, trace in list(self.eligibility_traces.items()):
+            # 更新 Q 值
+            self.q_table[state] += self.alpha * td_error * trace
 
-            # Q 值更新
-            self.q_table[past_state_h] += self.alpha * td_error
+            # 衰减资格迹: e(s) *= γλ
+            self.eligibility_traces[state] *= self.gamma * self.lambda_
+
+            # 清除非常小的资格迹 (优化内存)
+            if self.eligibility_traces[state] < 1e-5:
+                states_to_remove.append(state)
+
+        # 移除小资格迹
+        for state in states_to_remove:
+            del self.eligibility_traces[state]
+
+        # 更新上一步状态和动作
+        self.last_state = state_h
+        self.last_action_value = action_val
 
     def decay_parameters(self):
         """衰减学习率和探索率"""
         self.alpha = max(self.min_alpha, self.alpha * self.alpha_decay)
         self.epsilon = max(self.min_epsilon, self.epsilon * self.epsilon_decay)
+
+    def reset_episode(self):
+        """每个 episode 开始时重置资格迹和状态追踪"""
+        self.eligibility_traces.clear()
+        self.last_state = None
+        self.last_action_value = None
 
     def save_agent(self, path):
         """保存 Agent 状态"""
@@ -306,7 +349,8 @@ class SarsaSAABaseline:
             'q_table': dict(self.q_table),
             'history_samples': {k: v for k, v in self.history_samples.items()},
             'alpha': self.alpha,
-            'epsilon': self.epsilon
+            'epsilon': self.epsilon,
+            'lambda': self.lambda_
         }
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, 'wb') as f:
@@ -323,6 +367,7 @@ class SarsaSAABaseline:
                 self.history_samples = defaultdict(list, data['history_samples'])
                 self.alpha = data.get('alpha', self.alpha)
                 self.epsilon = data.get('epsilon', self.epsilon)
+                self.lambda_ = data.get('lambda', self.lambda_)
             print(f"Agent loaded from {path}")
         else:
             print(f"No checkpoint found at {path}")
@@ -429,8 +474,8 @@ def run_simulation_phase(phase_name, days_to_run, env, agent, config, round_idx,
             # 注意：不要再调用 env.vehicle_manager.reset()，
             # 因为这会清空冷启动的 _warmup_schedule！
 
-            # 清空 buffer
-            agent.trajectory_buffer.clear()
+            # 重置资格迹和状态追踪
+            agent.reset_episode()
 
         except Exception as e:
             print(f"错误: env 重置失败在 Day {d}: {e}")
@@ -449,24 +494,24 @@ def run_simulation_phase(phase_name, days_to_run, env, agent, config, round_idx,
                 current_demand = get_current_tick_demand(env, env.simulation_time, config.TICK_DURATION_SEC)
                 agent.record_history(saa_time_slot, current_demand)
 
+                # 获取车辆分布 (每个 tick 都需要获取,用于状态计算)
+                idle_vehicles_list = [0] * config.NUM_GRIDS
+                for v in env.vehicle_manager.vehicles.values():
+                    if v['status'] == 'idle':
+                        idle_vehicles_list[v['current_grid']] += 1
+
                 # 调度决策（每 5 分钟一次）
                 dispatch_instructions = {}
                 est_value = 0.0
 
                 if ticks % 10 == 0:
-                    # 获取车辆分布
-                    idle_vehicles_list = [0] * config.NUM_GRIDS
-                    for v in env.vehicle_manager.vehicles.values():
-                        if v['status'] == 'idle':
-                            idle_vehicles_list[v['current_grid']] += 1
-
                     # 始终执行 SAA 调度（ε 用于控制调度激进程度）
                     # 探索期：更保守的调度半径和阈值
                     # 利用期：使用学到的最优参数
                     if is_training and random.random() < agent.epsilon:
                         # 探索：使用较小的调度半径（更保守）
                         original_radius = agent.max_dispatch_radius
-                        agent.max_dispatch_radius = max(5, int(original_radius * 0.6))
+                        agent.max_dispatch_radius = max(1, int(original_radius * 0.6))
                         dispatch_instructions, est_value = agent.solve_saa_dispatch(
                             idle_vehicles_list, saa_time_slot
                         )
@@ -588,8 +633,8 @@ def run_sarsa_saa_simulation(config, num_episodes, env_data, num_rounds=5):
         set_seed(current_seed)
         print(f"\n>>> Round {round_idx + 1}/{num_rounds} (Seed: {current_seed})")
 
-        # 初始化 Agent
-        agent = SarsaSAABaseline(config, delta=12, sample_size=7)
+        # 初始化 Agent (lambda=0.9 为推荐值)
+        agent = SarsaSAABaseline(config, lambda_=0.9, sample_size=7)
 
         # 创建环境
         try:
