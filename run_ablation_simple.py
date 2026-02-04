@@ -8,6 +8,7 @@
 2. 运行特定的消融类型:
    python run_ablation_simple.py --ablation full_model
    python run_ablation_simple.py --ablation no_mgcn
+   python run_ablation_simple.py --ablation cnn
    python run_ablation_simple.py --ablation no_dueling
    python run_ablation_simple.py --ablation no_per
    python run_ablation_simple.py --ablation no_multi_stage_reward
@@ -44,6 +45,7 @@ from evaluate import evaluate_model
 ABLATION_TYPES = {
     'full_model': '完整模型 (双图MGCN + Dueling)',
     'no_mgcn': '无MGCN - 使用简化MLP',
+    'cnn': 'CNN替代MGCN - 卷积神经网络',
     'neighbor_only': '单图MGCN - 仅邻接图',
     'poi_only': '单图MGCN - 仅POI图',
     'no_dueling': '无Dueling - 使用标准DQN',

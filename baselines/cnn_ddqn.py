@@ -31,8 +31,7 @@ try:
     from config import Config
     from utils.data_process import DataProcessor
     from utils.graph_builder import GraphBuilder
-    from environment import RideHailingEnvironment
-    from evaluate import evaluate_model, print_evaluation_results
+    from environment_baseline import BaselineEnvironment  # ✅ 使用baseline环境
     from baselines.cnn_ddqn_model import CNNDDQN
 except ImportError as e:
     print(f"导入错误: {e}")
@@ -158,16 +157,23 @@ class SimpleCNNTrainer:
                    desc=f"Episode {episode}", leave=False)
 
         while env.episode_step < self.config.MAX_TICKS_PER_EPISODE:
-            step_info = env.step(epsilon=self.epsilon)
+            # ✅ BaselineEnvironment.step()不接受参数，返回(state, reward, done, info)
+            state, reward, done, info = env.step()
+            step_info = info.get('step_info', {})
+
+            # 累积奖励（使用step中的revenue）
             total_reward += step_info.get('revenue', 0)
 
-            # 训练
+            # 训练（如果有足够的经验）
             loss = self.train_step()
             if loss is not None:
                 total_loss += loss
                 loss_count += 1
 
             pbar.update(1)
+
+            if done:
+                break
 
         pbar.close()
 
@@ -204,12 +210,10 @@ def train_cnn_ddqn():
     print("\n初始化CNN-DDQN模型...")
     trainer = SimpleCNNTrainer(config)
 
-    # 创建环境
-    train_env = RideHailingEnvironment(config, data_processor, train_orders)
-    train_env.set_model_and_buffer(trainer.main_net, trainer.replay_buffer, config.DEVICE)
+    # ✅ 创建baseline环境（dispatch_policy='none'表示由模型控制）
+    train_env = BaselineEnvironment(config, data_processor, train_orders, dispatch_policy='none')
 
-    test_env = RideHailingEnvironment(config, data_processor, test_orders)
-    test_env.set_model_and_buffer(trainer.main_net, None, config.DEVICE)
+    test_env = BaselineEnvironment(config, data_processor, test_orders, dispatch_policy='none')
 
     # 训练
     num_episodes = config.NUM_EPISODES  # 使用config中的配置
@@ -253,20 +257,46 @@ def train_cnn_ddqn():
             print(f"\n早停触发！连续 {early_stopping_patience} 个episode奖励未提升。")
             break
 
-    # 测试
+    # ✅ 测试（简化版：运行1个完整episode）
     print(f"\n{'='*80}")
     print("在测试集上评估...")
     print(f"{'='*80}\n")
 
-    avg_test_results, daily_test_results = evaluate_model(
-        trainer, test_env, num_test_episodes=7, config=config, verbose=True
+    test_env.reset()
+    test_reward = 0
+    test_steps = 0
+
+    while test_env.episode_step < config.MAX_TICKS_PER_EPISODE:
+        # 使用贪婪策略（epsilon=0）
+        _, reward, done, info = test_env.step()
+        step_info = info.get('step_info', {})
+        test_reward += step_info.get('revenue', 0)
+        test_steps += 1
+        if done:
+            break
+
+    # 获取测试指标
+    test_metrics = test_env.reward_calculator.get_metrics(
+        total_orders_generated=test_env.episode_stats.get('total_orders_generated', 0)
     )
 
     # 打印测试结果
     print(f"\n{'='*80}")
     print("CNN-DDQN 测试结果")
     print(f"{'='*80}")
-    print_evaluation_results(avg_test_results, daily_test_results)
+    print(f"  总步数: {test_steps}")
+    print(f"  总奖励: {test_reward:.2f}")
+    print(f"  匹配率: {test_metrics.get('match_rate', 0):.2%}")
+    print(f"  完成率: {test_metrics.get('completion_rate', 0):.2%}")
+    print(f"  取消率: {test_metrics.get('cancel_rate', 0):.2%}")
+    print(f"  平均等待时间: {test_metrics.get('avg_waiting_time', 0):.1f}秒")
+
+    avg_test_results = {
+        'test_reward': test_reward,
+        'test_steps': test_steps,
+        **test_metrics
+    }
+    daily_test_results = []  # 简化版不需要
 
     # 保存结果
     save_dir = f'results/vehicles_{config.TOTAL_VEHICLES}/baselines/'

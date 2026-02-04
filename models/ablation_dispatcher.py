@@ -6,6 +6,7 @@
 2. no_mgcn: 使用简化 MLP 替代 MGCN
 3. no_dueling: 使用标准 DQN 替代 Dueling DQN
 4. no_attention_fusion: 使用拼接替代注意力融合
+5. cnn: 使用 CNN 替代 MGCN（对比图卷积 vs 卷积神经网络）
 """
 
 import torch
@@ -47,6 +48,80 @@ class SimplifiedMLP(nn.Module):
         batch_size = node_features.shape[0]
         flattened = node_features.view(batch_size, -1)
         return self.network(flattened)
+
+
+class CNNFeatureExtractor(nn.Module):
+    """CNN 特征提取器，用于替代 MGCN"""
+
+    def __init__(self, config):
+        super(CNNFeatureExtractor, self).__init__()
+        self.config = config
+        self.num_grids = config.NUM_GRIDS  # 400
+        self.grid_rows = config.GRID_SIZE[0]  # 20
+        self.grid_cols = config.GRID_SIZE[1]  # 20
+        self.input_channels = config.INPUT_DIM  # 5
+
+        # CNN Layers: (B, 5, 20, 20) -> (B, 64, 20, 20)
+        self.conv1 = nn.Conv2d(
+            in_channels=self.input_channels,
+            out_channels=32,
+            kernel_size=3,
+            padding=1
+        )
+        self.bn1 = nn.BatchNorm2d(32)
+
+        self.conv2 = nn.Conv2d(
+            in_channels=32,
+            out_channels=64,
+            kernel_size=3,
+            padding=1
+        )
+        self.bn2 = nn.BatchNorm2d(64)
+
+        self.conv3 = nn.Conv2d(
+            in_channels=64,
+            out_channels=64,
+            kernel_size=3,
+            padding=1
+        )
+        self.bn3 = nn.BatchNorm2d(64)
+
+        # Flatten后的维度: 64 * 20 * 20 = 25600
+        cnn_output_dim = 64 * self.grid_rows * self.grid_cols
+
+        # 映射到与 MGCN 相同的输出维度
+        self.projection = nn.Sequential(
+            nn.Linear(cnn_output_dim, 256),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(256, config.HIDDEN_DIMS[-1])
+        )
+
+    def forward(self, node_features):
+        """
+        Args:
+            node_features: (batch_size, num_grids, input_dim) = (B, 400, 5)
+        Returns:
+            (batch_size, hidden_dims[-1])
+        """
+        batch_size = node_features.shape[0]
+
+        # Reshape: (B, 400, 5) -> (B, 5, 20, 20)
+        grid_2d = node_features.view(batch_size, self.grid_rows, self.grid_cols, self.input_channels)
+        grid_2d = grid_2d.permute(0, 3, 1, 2)  # (B, 5, 20, 20)
+
+        # CNN 特征提取
+        x = F.relu(self.bn1(self.conv1(grid_2d)))  # (B, 32, 20, 20)
+        x = F.relu(self.bn2(self.conv2(x)))        # (B, 64, 20, 20)
+        x = F.relu(self.bn3(self.conv3(x)))        # (B, 64, 20, 20)
+
+        # Flatten
+        cnn_features = x.view(batch_size, -1)  # (B, 25600)
+
+        # 投影到与 MGCN 相同的维度
+        output = self.projection(cnn_features)  # (B, hidden_dims[-1])
+
+        return output
 
 
 class StandardDQNHead(nn.Module):
@@ -108,6 +183,10 @@ class AblationDispatcher(nn.Module):
         if ablation_type == 'no_mgcn':
             # 使用简化的 MLP
             self.feature_extractor = SimplifiedMLP(config)
+            feature_dim = config.HIDDEN_DIMS[-1]
+        elif ablation_type == 'cnn':
+            # 使用 CNN 替代 MGCN
+            self.feature_extractor = CNNFeatureExtractor(config)
             feature_dim = config.HIDDEN_DIMS[-1]
         elif ablation_type == 'neighbor_only':
             # 单图MGCN: 仅使用邻接图
