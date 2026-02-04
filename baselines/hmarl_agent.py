@@ -302,6 +302,12 @@ class MFuN_Agent:
                 self.current_sub_goals = sub_goals.squeeze(0).cpu().numpy()  # (num_grids,)
                 self.last_manager_step = step
 
+                # 调试：打印Manager的子目标统计
+                if step <= 100:
+                    neg_goals = (self.current_sub_goals < -0.5).sum()
+                    print(f"\n  [Manager] Step {step}: sub_goals range=[{self.current_sub_goals.min():.2f}, {self.current_sub_goals.max():.2f}], "
+                          f"调出需求(< -0.5)={neg_goals}/400")
+
             # 2. 只处理有空闲车辆的grid（大幅优化性能）
             idle_grids = set()
             for v in env.vehicle_manager.vehicles.values():
@@ -309,10 +315,17 @@ class MFuN_Agent:
                     idle_grids.add(v['current_grid'])
 
             if not idle_grids:
+                if step <= 100:
+                    print(f"  [Worker] Step {step}: 没有空闲车辆")
                 return {}  # 没有空闲车辆，直接返回
+
+            if step <= 100:
+                print(f"  [Worker] Step {step}: {len(idle_grids)} 个grid有空闲车辆")
 
             # 3. Worker执行（只处理有车的grid）- 简化版，不使用MILP和ALNS
             dispatch_orders = {}
+            skipped_positive = 0
+            skipped_no_demand = 0
 
             for grid_id in idle_grids:
                 # 获取子目标
@@ -320,6 +333,7 @@ class MFuN_Agent:
 
                 # 只有当子目标要求调出车辆时才处理
                 if sub_goal >= -0.5:
+                    skipped_positive += 1
                     continue
 
                 # 获取该grid的空闲车辆
@@ -340,6 +354,7 @@ class MFuN_Agent:
                         demand[g] = len([o for o in pending_orders if o.get('origin_grid', -1) == g])
 
                 if not demand:
+                    skipped_no_demand += 1
                     continue
 
                 # 选择需求最高的grid
@@ -352,6 +367,11 @@ class MFuN_Agent:
                     if grid_id not in dispatch_orders:
                         dispatch_orders[grid_id] = {}
                     dispatch_orders[grid_id][target_grid] = num_to_dispatch
+
+            if step <= 100:
+                total_dispatch = sum(sum(targets.values()) for targets in dispatch_orders.values())
+                print(f"  [Worker] Step {step}: 跳过(sub_goal>=0)={skipped_positive}, 跳过(无需求)={skipped_no_demand}, "
+                      f"生成调度={total_dispatch}辆")
 
             return dispatch_orders
 

@@ -94,27 +94,35 @@ def train_hmarl():
     print(f"开始训练 (共 {num_episodes} episodes)")
     print(f"{'='*70}\n")
 
+    # ✅ 修改：使用完整训练数据集初始化环境（一次性初始化，避免重复开销）
+    env = BaselineEnvironment(config, data_processor, train_orders, dispatch_policy='none')
+
     for episode in range(num_episodes):
         print(f"\n{'='*70}")
         print(f"Episode {episode+1}/{num_episodes}")
         print(f"{'='*70}")
 
-        # 随机选择训练天
-        current_day = random.choice(train_days)
-        print(f"  训练日期: {current_day}")
+        # ✅ 随机选择训练天的索引（相对于整个数据集）
+        train_orders['date'] = train_orders['timestamp'].dt.date
+        train_days_list = sorted(train_orders['date'].unique())
+        selected_date = random.choice(train_days_list)
 
-        # 准备环境数据
-        day_orders = train_orders[train_orders['date'] == current_day]
-        print(f"  订单数量: {len(day_orders)}")
+        # 计算相对天数
+        first_date = train_orders['timestamp'].min().date()
+        start_day_idx = (selected_date - first_date).days
 
-        if len(day_orders) == 0:
+        print(f"  训练日期: {selected_date} (Day {start_day_idx})")
+
+        # 检查该天订单数量
+        day_order_count = len(train_orders[train_orders['date'] == selected_date])
+        print(f"  该天订单数量: {day_order_count}")
+
+        if day_order_count == 0:
             print(f"  ⚠️ 警告：该天没有订单，跳过")
             continue
 
-        # 初始化环境（使用 'none' 策略，由 Agent 完全接管）
-        env = BaselineEnvironment(config, data_processor, day_orders, dispatch_policy='none')
-        # 触发冷启动机制（start_day=0即可，因为day_orders只有一天数据）
-        env.reset(start_day=0)
+        # ✅ 重置环境到指定天数
+        env.reset(start_day=start_day_idx)
 
         # 打印调试信息
         print(f"  环境初始化完成:")
@@ -233,7 +241,8 @@ def train_hmarl():
             pbar.close()
 
         # Episode 统计
-        metrics = env.reward_calculator.get_metrics(total_orders_generated=len(day_orders))
+        total_orders_in_episode = env.episode_stats.get('total_orders_generated', day_order_count)
+        metrics = env.reward_calculator.get_metrics(total_orders_generated=total_orders_in_episode)
         print(f"\n{'='*70}")
         print(f"Episode {episode+1} 结果:")
         print(f"{'='*70}")
@@ -241,6 +250,7 @@ def train_hmarl():
         print(f"  外部奖励: {external_reward_sum:.2f}")
         print(f"  内部奖励: {intrinsic_reward_sum:.2f}")
         print(f"  调度次数: {total_dispatched}")
+        print(f"  实际生成订单: {total_orders_in_episode}")
         print(f"  匹配率: {metrics['match_rate']:.2%}")
         print(f"  完成率: {metrics.get('completion_rate', 0):.2%}")
         print(f"  平均等待时间: {metrics.get('avg_wait_time', 0):.1f}秒")
