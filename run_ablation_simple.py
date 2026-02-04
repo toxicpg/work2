@@ -116,6 +116,16 @@ def run_single_ablation(ablation_type, config, data_processor, neighbor_adj, poi
             print(f"\n早停触发！连续 {early_stopping_patience} 个episode奖励未提升。")
             break
 
+    # 保存训练好的模型
+    print(f"\n{'='*80}")
+    print(f"保存模型...")
+    print(f"{'='*80}\n")
+    try:
+        checkpoint_path = trainer.save_checkpoint(episode)
+        print(f"✓ 模型已保存: {checkpoint_path}")
+    except Exception as e:
+        print(f"⚠️  模型保存失败: {e}")
+
     # ===== 阶段2: 测试 =====
     print(f"\n{'='*80}")
     print(f"阶段 2/2: 测试阶段")

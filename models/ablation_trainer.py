@@ -301,6 +301,80 @@ class AblationMGCNTrainer:
 
         return episode_reward, avg_loss
 
+    def save_checkpoint(self, episode, save_dir=None):
+        """保存模型检查点"""
+        if save_dir is None:
+            save_dir = self.config.ABLATION_SAVE_PATH
+
+        try:
+            os.makedirs(save_dir, exist_ok=True)
+
+            checkpoint = {
+                'episode': episode,
+                'ablation_type': self.ablation_type,
+                'model_state_dict': self.main_net.state_dict(),
+                'target_model_state_dict': self.target_net.state_dict(),
+                'optimizer_state_dict': self.optimizer.state_dict(),
+                'epsilon': self.epsilon,
+                'train_step_count': self.train_step_count,
+                'total_rewards': self.total_rewards[-100:],
+                'losses': self.losses[-100:],
+                'epsilon_history': self.epsilon_history[-100:],
+                'per_frame': self.replay_buffer.frame if hasattr(self.replay_buffer, 'frame') else 0,
+                'ablation_metrics': self.ablation_metrics
+            }
+
+            checkpoint_path = os.path.join(save_dir, f'{self.ablation_type}_ablation_episode_{episode}.pt')
+            torch.save(checkpoint, checkpoint_path)
+            self.log_message(f"✓ Checkpoint 已保存: {checkpoint_path}")
+            return checkpoint_path
+        except Exception as e:
+            self.log_message(f"❌ 保存 checkpoint 失败: {e}")
+            raise e
+
+    def load_checkpoint(self, checkpoint_path):
+        """加载模型检查点"""
+        if not os.path.exists(checkpoint_path):
+            self.log_message(f"❌ Checkpoint 文件未找到: {checkpoint_path}")
+            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+
+        try:
+            checkpoint = torch.load(checkpoint_path, map_location=self.device)
+
+            # 加载模型权重
+            self.main_net.load_state_dict(checkpoint['model_state_dict'])
+            self.target_net.load_state_dict(checkpoint['target_model_state_dict'])
+
+            # 加载优化器
+            try:
+                self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            except ValueError as e:
+                print(f"⚠️  加载优化器状态失败: {e}")
+
+            # 加载训练状态
+            self.epsilon = checkpoint.get('epsilon', self.config.EPSILON_START)
+            self.train_step_count = checkpoint.get('train_step_count', 0)
+            self.total_rewards = checkpoint.get('total_rewards', [])
+            self.losses = checkpoint.get('losses', [])
+            self.epsilon_history = checkpoint.get('epsilon_history', [])
+
+            if hasattr(self.replay_buffer, 'frame'):
+                self.replay_buffer.frame = checkpoint.get('per_frame', 1)
+
+            self.ablation_metrics = checkpoint.get('ablation_metrics', {
+                'train_steps': [],
+                'train_rewards': [],
+                'train_losses': [],
+                'epsilon_values': []
+            })
+
+            episode = checkpoint.get('episode', 0)
+            self.log_message(f"✓ Checkpoint 已加载: {checkpoint_path} (Episode {episode})")
+            return episode
+        except Exception as e:
+            self.log_message(f"❌ 加载 checkpoint 失败: {e}")
+            raise e
+
     def get_ablation_summary(self):
         """获取消融实验总结"""
         return {
