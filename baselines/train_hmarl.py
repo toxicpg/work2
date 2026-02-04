@@ -107,10 +107,20 @@ def train_hmarl():
         day_orders = train_orders[train_orders['date'] == current_day]
         print(f"  订单数量: {len(day_orders)}")
 
+        if len(day_orders) == 0:
+            print(f"  ⚠️ 警告：该天没有订单，跳过")
+            continue
+
         # 初始化环境（使用 'none' 策略，由 Agent 完全接管）
         env = BaselineEnvironment(config, data_processor, day_orders, dispatch_policy='none')
         # 触发冷启动机制（start_day=0即可，因为day_orders只有一天数据）
         env.reset(start_day=0)
+
+        # 打印调试信息
+        print(f"  环境初始化完成:")
+        print(f"    - 订单生成器天数: {env.order_generator.total_days}")
+        print(f"    - 当前day: {env.current_day}, time_slice: {env.current_time_slice}")
+        print(f"    - 订单时间范围: {env.order_generator.time_range[0]} ~ {env.order_generator.time_range[1]}")
 
         # 重置 Agent 状态
         agent.reset_episode()
@@ -202,9 +212,18 @@ def train_hmarl():
                     pbar.update(50)
                     pbar.set_postfix({
                         'Step': step_count,
-                        'Reward': f"{total_reward/step_count:.2f}",
+                        'New': step_info.get('new_orders', 0),
+                        'Matched': tick_matched,
+                        'Pending': len(env.pending_orders),
                         'Dispatch': total_dispatched
                     })
+
+                # 前10个tick打印详细信息
+                if step_count <= 10:
+                    print(f"\n  Tick {step_count}: new_orders={step_info.get('new_orders', 0)}, "
+                          f"matched={tick_matched}, cancelled={tick_cancelled}, "
+                          f"pending={len(env.pending_orders)}, "
+                          f"current_day={env.current_day}, time_slice={env.current_time_slice}")
 
         except Exception as e:
             print(f"\n❌ Episode {episode+1} 执行出错: {e}")
