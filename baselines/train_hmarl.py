@@ -125,33 +125,40 @@ def train_hmarl():
         pbar = tqdm(total=config.MAX_TICKS_PER_EPISODE, desc=f"Ep {episode+1}")
         
         try:
+            # 每10个tick才调度一次，大幅加速
+            dispatch_interval = 10
+
             while env.episode_step < config.MAX_TICKS_PER_EPISODE:
                 current_time = env.current_time
 
-                # --- 1. Agent Decision ---
-                dispatch_orders = agent.select_action(env, step=step_count, training=True)
+                # --- 1. Agent Decision（每10 ticks一次）---
+                if step_count % dispatch_interval == 0:
+                    dispatch_orders = agent.select_action(env, step=step_count, training=True)
 
-                # --- 2. Environment Execution ---
-                dispatch_success_count = 0
-                if dispatch_orders:
-                    for src_grid, targets in dispatch_orders.items():
-                        for dst_grid, count in targets.items():
-                            # 获取 src_grid 的空闲车辆
-                            available_vehs = []
-                            if hasattr(env.vehicle_manager, 'vehicles'):
-                                for vid, v in env.vehicle_manager.vehicles.items():
-                                    if v['status'] == 'idle' and v['current_grid'] == src_grid:
-                                        available_vehs.append(vid)
+                    # --- 2. Environment Execution ---
+                    dispatch_success_count = 0
+                    if dispatch_orders:
+                        for src_grid, targets in dispatch_orders.items():
+                            for dst_grid, count in targets.items():
+                                # 获取 src_grid 的空闲车辆
+                                available_vehs = []
+                                if hasattr(env.vehicle_manager, 'vehicles'):
+                                    for vid, v in env.vehicle_manager.vehicles.items():
+                                        if v['status'] == 'idle' and v['current_grid'] == src_grid:
+                                            available_vehs.append(vid)
 
-                            # 调度车辆
-                            num_to_dispatch = min(len(available_vehs), count)
-                            for i in range(num_to_dispatch):
-                                vid = available_vehs[i]
-                                success = env.vehicle_manager.start_dispatching(vid, dst_grid, current_time)
-                                if success:
-                                    dispatch_success_count += 1
+                                # 调度车辆
+                                num_to_dispatch = min(len(available_vehs), count)
+                                for i in range(num_to_dispatch):
+                                    vid = available_vehs[i]
+                                    success = env.vehicle_manager.start_dispatching(vid, dst_grid, current_time)
+                                    if success:
+                                        dispatch_success_count += 1
 
-                total_dispatched += dispatch_success_count
+                    total_dispatched += dispatch_success_count
+                else:
+                    dispatch_orders = {}
+                    dispatch_success_count = 0
 
                 # --- 3. Step Environment ---
                 _, _, _, info = env.step()
@@ -159,40 +166,45 @@ def train_hmarl():
 
                 # --- 4. Reward Calculation ---
                 # 外部奖励：基于环境的实际业务指标
-                # 从step_info中获取当前tick的业务指标
                 tick_completed = step_info.get('completed_orders', 0)
                 tick_cancelled = step_info.get('cancelled_orders', 0)
                 tick_matched = step_info.get('matched_orders', 0)
 
                 # 外部奖励计算
                 external_reward = (
-                    tick_completed * 10      # 完成订单奖励
-                    - tick_cancelled * 5     # 取消订单惩罚
-                    + tick_matched * 1       # 匹配订单小奖励
+                    tick_completed * 10
+                    - tick_cancelled * 5
+                    + tick_matched * 1
                 )
 
-                # 内部奖励：鼓励完成 Manager 的子目标
-                intrinsic_reward = agent.compute_intrinsic_reward(env, dispatch_orders if dispatch_orders else {})
+                # 内部奖励（只在调度时计算）
+                if dispatch_orders:
+                    intrinsic_reward = agent.compute_intrinsic_reward(env, dispatch_orders)
+                else:
+                    intrinsic_reward = 0
 
-                # 总奖励
                 step_reward = external_reward + intrinsic_reward
-
                 total_reward += step_reward
                 external_reward_sum += external_reward
                 intrinsic_reward_sum += intrinsic_reward
 
-                # --- 5. RL Update ---
-                agent.observe_reward(step_reward)
-                loss = agent.update()
+                # --- 5. RL Update（每30个tick更新一次）---
+                if step_count % 30 == 0:
+                    agent.observe_reward(step_reward)
+                    loss = agent.update()
+                else:
+                    loss = None
 
                 step_count += 1
-                pbar.update(1)
-                pbar.set_postfix({
-                    'Reward': f"{step_reward:.2f}",
-                    'Ext': f"{external_reward:.1f}",
-                    'Int': f"{intrinsic_reward:.1f}",
-                    'Dispatch': dispatch_success_count
-                })
+
+                # 每50 ticks更新一次进度条
+                if step_count % 50 == 0:
+                    pbar.update(50)
+                    pbar.set_postfix({
+                        'Step': step_count,
+                        'Reward': f"{total_reward/step_count:.2f}",
+                        'Dispatch': total_dispatched
+                    })
 
         except Exception as e:
             print(f"\n❌ Episode {episode+1} 执行出错: {e}")

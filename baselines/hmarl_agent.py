@@ -205,8 +205,8 @@ class MFuN_Agent:
 
         # 训练参数
         self.gamma = config.GAMMA
-        self.manager_update_freq = 10  # Manager每5分钟决策一次 (假设tick=30秒)
-        self.worker_update_freq = 1    # Worker每30秒决策一次
+        self.manager_update_freq = 50  # Manager每50个tick决策一次（约50分钟）
+        self.worker_update_freq = 10   # Worker每10个tick决策一次（约10分钟）
 
         # MILP和ALNS配置
         self.use_milp = PULP_AVAILABLE
@@ -286,7 +286,7 @@ class MFuN_Agent:
 
     def select_action(self, env, step, training=True):
         """
-        选择动作（调度指令）
+        选择动作（调度指令）- 优化版：只处理有空闲车辆的grid
         Args:
             env: 环境实例
             step: 当前步数
@@ -302,52 +302,56 @@ class MFuN_Agent:
                 self.current_sub_goals = sub_goals.squeeze(0).cpu().numpy()  # (num_grids,)
                 self.last_manager_step = step
 
-            # 2. Worker执行（每步）+ MILP + ALNS
-            all_dispatch_plans = {}  # {vehicle_id: target_grid_id}
+            # 2. 只处理有空闲车辆的grid（大幅优化性能）
+            idle_grids = set()
+            for v in env.vehicle_manager.vehicles.values():
+                if v['status'] == 'idle':
+                    idle_grids.add(v['current_grid'])
 
-            for grid_id in range(self.num_grids):
-                # 获取局部状态
-                local_state = self.get_local_state(env, grid_id)
-                sub_goal_value = torch.FloatTensor([self.current_sub_goals[grid_id]]).to(self.device)
+            if not idle_grids:
+                return {}  # 没有空闲车辆，直接返回
 
-                # Worker决策
-                if grid_id not in self.worker_hiddens:
-                    self.worker_hiddens[grid_id] = None
-
-                action_logits, _, self.worker_hiddens[grid_id] = self.worker_shared(
-                    local_state.unsqueeze(0),
-                    sub_goal_value.unsqueeze(0),
-                    self.worker_hiddens[grid_id]
-                )
-
-                # 获取动作概率分布
-                action_probs = F.softmax(action_logits, dim=-1).squeeze(0)  # (num_grids,)
-
-                # === 关键改进：使用MILP求解具体车辆分配 ===
-                grid_dispatch_plan = self.solve_milp_dispatch(
-                    env,
-                    grid_id,
-                    action_probs,
-                    self.current_sub_goals[grid_id]
-                )
-
-                # 合并到总调度计划
-                all_dispatch_plans.update(grid_dispatch_plan)
-
-            # === 关键改进：使用ALNS优化整体路径 ===
-            optimized_plans = self.alns_optimize_routes(env, all_dispatch_plans)
-
-            # 转换为环境需要的格式: {src_grid: {dst_grid: count}}
+            # 3. Worker执行（只处理有车的grid）- 简化版，不使用MILP和ALNS
             dispatch_orders = {}
-            for vehicle_id, target_grid in optimized_plans.items():
-                vehicle = env.vehicle_manager.vehicles[vehicle_id]
-                src_grid = vehicle['current_grid']
 
-                if src_grid not in dispatch_orders:
-                    dispatch_orders[src_grid] = {}
-                if target_grid not in dispatch_orders[src_grid]:
-                    dispatch_orders[src_grid][target_grid] = 0
-                dispatch_orders[src_grid][target_grid] += 1
+            for grid_id in idle_grids:
+                # 获取子目标
+                sub_goal = self.current_sub_goals[grid_id]
+
+                # 只有当子目标要求调出车辆时才处理
+                if sub_goal >= -0.5:
+                    continue
+
+                # 获取该grid的空闲车辆
+                idle_vehicles = [v_id for v_id, v in env.vehicle_manager.vehicles.items()
+                               if v['status'] == 'idle' and v['current_grid'] == grid_id]
+
+                if not idle_vehicles:
+                    continue
+
+                # 简化：直接选择需求最高的邻近grid（3格内）
+                pending_orders = getattr(env, 'pending_orders', [])
+                demand = {}
+
+                src_row, src_col = grid_id // 20, grid_id % 20
+                for g in range(self.num_grids):
+                    dst_row, dst_col = g // 20, g % 20
+                    if abs(src_row - dst_row) + abs(src_col - dst_col) <= 3:
+                        demand[g] = len([o for o in pending_orders if o.get('origin_grid', -1) == g])
+
+                if not demand:
+                    continue
+
+                # 选择需求最高的grid
+                target_grid = max(demand.items(), key=lambda x: x[1])[0]
+
+                # 调度部分车辆（不超过子目标要求）
+                num_to_dispatch = min(len(idle_vehicles), int(abs(sub_goal)))
+
+                if num_to_dispatch > 0:
+                    if grid_id not in dispatch_orders:
+                        dispatch_orders[grid_id] = {}
+                    dispatch_orders[grid_id][target_grid] = num_to_dispatch
 
             return dispatch_orders
 
