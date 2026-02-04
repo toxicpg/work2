@@ -88,8 +88,9 @@ class ManagerNetwork(nn.Module):
         x = F.relu(self.fc2(x))
         x = self.dropout(x)
 
-        # 输出子目标 (ReLU确保非负)
-        sub_goals = F.relu(self.sub_goal_layer(x))  # (batch, num_grids)
+        # 输出子目标 (tanh允许正负值，表示调入/调出)
+        # 输出范围: [-5, 5]，表示期望调入/调出的车辆数
+        sub_goals = 5.0 * torch.tanh(self.sub_goal_layer(x))  # (batch, num_grids)
 
         # 输出状态价值
         value = self.value_layer(x)  # (batch, 1)
