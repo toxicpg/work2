@@ -97,14 +97,15 @@ def train_hmarl():
     # ✅ 修改：使用完整训练数据集初始化环境（一次性初始化，避免重复开销）
     env = BaselineEnvironment(config, data_processor, train_orders, dispatch_policy='none')
 
+    # ✅ 预先计算日期列表，避免每次循环重复计算
+    train_days_list = sorted(train_orders['date'].unique())
+
     for episode in range(num_episodes):
         print(f"\n{'='*70}")
         print(f"Episode {episode+1}/{num_episodes}")
         print(f"{'='*70}")
 
-        # ✅ 随机选择训练天的索引（相对于整个数据集）
-        train_orders['date'] = train_orders['timestamp'].dt.date
-        train_days_list = sorted(train_orders['date'].unique())
+        # ✅ 随机选择训练天的索引
         selected_date = random.choice(train_days_list)
 
         # 计算相对天数

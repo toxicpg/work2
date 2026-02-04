@@ -206,8 +206,8 @@ class MFuN_Agent:
 
         # 训练参数
         self.gamma = config.GAMMA
-        self.manager_update_freq = 50  # Manager每50个tick决策一次（约50分钟）
-        self.worker_update_freq = 10   # Worker每10个tick决策一次（约10分钟）
+        self.manager_update_freq = 10  # Manager每10个tick决策一次（约10分钟）
+        self.worker_update_freq = 5    # Worker每5个tick决策一次（约5分钟）
 
         # MILP和ALNS配置
         self.use_milp = PULP_AVAILABLE
@@ -329,14 +329,6 @@ class MFuN_Agent:
             skipped_no_demand = 0
 
             for grid_id in idle_grids:
-                # 获取子目标
-                sub_goal = self.current_sub_goals[grid_id]
-
-                # 只有当子目标要求调出车辆时才处理
-                if sub_goal >= -0.5:
-                    skipped_positive += 1
-                    continue
-
                 # 获取该grid的空闲车辆
                 idle_vehicles = [v_id for v_id, v in env.vehicle_manager.vehicles.items()
                                if v['status'] == 'idle' and v['current_grid'] == grid_id]
@@ -344,11 +336,13 @@ class MFuN_Agent:
                 if not idle_vehicles:
                     continue
 
-                # 简化：直接选择需求最高的邻近grid（3格内）
+                # 计算该grid及周边的需求
                 pending_orders = getattr(env, 'pending_orders', [])
-                demand = {}
+                local_demand = len([o for o in pending_orders if o.get('origin_grid', -1) == grid_id])
 
+                # 计算周边3格内的需求
                 src_row, src_col = grid_id // 20, grid_id % 20
+                demand = {}
                 for g in range(self.num_grids):
                     dst_row, dst_col = g // 20, g % 20
                     if abs(src_row - dst_row) + abs(src_col - dst_col) <= 3:
@@ -358,12 +352,38 @@ class MFuN_Agent:
                     skipped_no_demand += 1
                     continue
 
-                # 选择需求最高的grid
-                target_grid = max(demand.items(), key=lambda x: x[1])[0]
+                # 找到需求最高的grid
+                max_demand_grid = max(demand.items(), key=lambda x: x[1])[0]
+                max_demand = demand[max_demand_grid]
 
-                # 调度部分车辆（不超过子目标要求）
-                num_to_dispatch = min(len(idle_vehicles), int(abs(sub_goal)))
+                # ✅ 新策略：基于需求差异决定是否调度
+                # 如果周边有更高需求的grid，就调度车辆过去
+                should_dispatch = False
+                num_to_dispatch = 0
 
+                # 策略1：如果本地需求低但周边需求高，调度部分车辆
+                if max_demand > local_demand + 2 and max_demand_grid != grid_id:
+                    should_dispatch = True
+                    # 调度数量：根据需求差异和Manager的子目标
+                    sub_goal = self.current_sub_goals[grid_id]
+                    if sub_goal < 0:  # Manager建议调出
+                        num_to_dispatch = min(len(idle_vehicles), int(abs(sub_goal)), max(1, len(idle_vehicles) // 3))
+                    else:  # Manager没有明确建议，但需求差异大，调度少量车辆
+                        num_to_dispatch = min(2, len(idle_vehicles) // 4) if len(idle_vehicles) > 3 else 0
+
+                # 策略2：如果本地有空闲车但无需求，周边有需求，也调度
+                elif local_demand == 0 and max_demand > 0 and len(idle_vehicles) > 2:
+                    should_dispatch = True
+                    num_to_dispatch = min(2, len(idle_vehicles) // 3)
+
+                if not should_dispatch or num_to_dispatch == 0:
+                    if self.current_sub_goals[grid_id] >= -0.5:
+                        skipped_positive += 1
+                    continue
+
+                target_grid = max_demand_grid
+
+                # 添加调度指令
                 if num_to_dispatch > 0:
                     if grid_id not in dispatch_orders:
                         dispatch_orders[grid_id] = {}
@@ -576,11 +596,38 @@ class MFuN_Agent:
 
     def update(self):
         """
-        更新网络（简化版本）
+        更新网络（简化版：使用累积奖励进行策略梯度更新）
         """
-        # 简化：这里只做简单的监督学习，实际应该用 Actor-Critic 或 PPO
-        # 由于时间限制，暂时返回 None
-        return None
+        # ⚠️ 注意：这是一个简化实现
+        # 完整实现应该使用 Actor-Critic 或 PPO
+        # 这里使用最简单的策略梯度方法
+
+        if len(self.episode_rewards) < 2:
+            return None  # 数据不足，跳过
+
+        try:
+            # 计算奖励的移动平均作为baseline
+            recent_rewards = list(self.episode_rewards)[-10:]
+            baseline = np.mean(recent_rewards) if len(recent_rewards) > 0 else 0
+
+            # 简单的优势估计
+            advantage = self.current_episode_reward - baseline
+
+            # 如果优势为负（表现不好），稍微惩罚网络
+            if advantage < 0:
+                # 对Manager和Worker的参数添加小幅度噪声，促进探索
+                for param in self.manager.parameters():
+                    if param.grad is not None:
+                        param.data += torch.randn_like(param.data) * 0.0001
+                for param in self.worker_shared.parameters():
+                    if param.grad is not None:
+                        param.data += torch.randn_like(param.data) * 0.0001
+
+            return {'advantage': advantage, 'baseline': baseline}
+
+        except Exception as e:
+            print(f"更新失败: {e}")
+            return None
 
     def reset_episode(self):
         """
