@@ -102,10 +102,15 @@ def plot_training_curves(stats_dict, save_dir='results/plots/'):
 
     plt.tight_layout()
 
-    # 保存图表
-    plot_path = Path(save_dir) / 'training_curves.png'
-    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
-    print(f"✓ 训练曲线已保存到: {plot_path}")
+    # 保存PNG格式 (便于预览)
+    plot_path_png = Path(save_dir) / 'training_curves.png'
+    plt.savefig(plot_path_png, dpi=150, bbox_inches='tight')
+    print(f"✓ 训练曲线已保存(PNG): {plot_path_png}")
+
+    # 保存TIFF格式 (适合论文发表)
+    plot_path_tiff = Path(save_dir) / 'training_curves.tiff'
+    plt.savefig(plot_path_tiff, dpi=150, bbox_inches='tight', format='tiff')
+    print(f"✓ 训练曲线已保存(TIFF): {plot_path_tiff}")
 
     # 返回 Figure 对象以便进一步处理
     return fig

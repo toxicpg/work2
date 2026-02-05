@@ -7,14 +7,14 @@ Baseline 实验批量执行脚本
 记录指标: 等待时间、匹配率、完成率
 """
 import os
+import random
 import sys
+from datetime import datetime
+
 import numpy as np
 import pandas as pd
 import torch
-import random
-from datetime import datetime
 from tqdm import tqdm
-from collections import defaultdict
 
 sys.path.append(os.getcwd())
 from config import Config

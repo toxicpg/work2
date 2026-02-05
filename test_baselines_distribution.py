@@ -4,14 +4,14 @@
 支持分布：均匀 + 正态(std=1,3,5,7)
 """
 import os
+import random
 import sys
+from datetime import datetime
+
 import numpy as np
 import pandas as pd
 import torch
-import random
-from datetime import datetime
 from tqdm import tqdm
-from collections import defaultdict
 
 sys.path.append(os.getcwd())
 from config import Config

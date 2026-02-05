@@ -131,11 +131,16 @@ def create_transparent_heatmap(image_path, output_path=None, opacity=0.7):
         base_name = os.path.splitext(os.path.basename(image_path))[0]
         output_path = f"{base_name}_transparent_heatmap.png"
 
-    # 保存结果
+    # 保存PNG格式 (便于预览)
     plt.savefig(output_path, bbox_inches='tight', pad_inches=0, dpi=150)
-    plt.close()
+    print(f"透明热力图已保存(PNG): {output_path}")
 
-    print(f"透明热力图已保存到: {output_path}")
+    # 保存TIFF格式 (适合论文发表)
+    tiff_path = output_path.replace('.png', '.tiff')
+    plt.savefig(tiff_path, bbox_inches='tight', pad_inches=0, dpi=150, format='tiff')
+    print(f"透明热力图已保存(TIFF): {tiff_path}")
+
+    plt.close()
     return output_path, heat_data
 
 def main():

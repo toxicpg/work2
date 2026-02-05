@@ -9,12 +9,12 @@
 5. cnn: 使用 CNN 替代 MGCN（对比图卷积 vs 卷积神经网络）
 """
 
+import os
+import sys
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import sys
-import os
-import numpy as np
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 

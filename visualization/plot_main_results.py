@@ -3,9 +3,10 @@
 绘制堆叠柱状图 + 折线图（匹配率）和等待时间折线图
 """
 
+import os
+
 import matplotlib.pyplot as plt
 import numpy as np
-import os
 
 # 设置中文字体
 plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'SimHei', 'DejaVu Sans']
@@ -101,9 +102,17 @@ def plot_completion_rate_combined():
     # 保存
     save_dir = 'results/visualizations'
     os.makedirs(save_dir, exist_ok=True)
-    save_path = os.path.join(save_dir, 'fig1_completion_rate_combined.png')
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    print(f'✓ 图1已保存: {save_path}')
+
+    # 保存PNG格式 (便于预览)
+    save_path_png = os.path.join(save_dir, 'fig1_completion_rate_combined.png')
+    plt.savefig(save_path_png, dpi=300, bbox_inches='tight')
+    print(f'✓ 图1已保存(PNG): {save_path_png}')
+
+    # 保存TIFF格式 (适合论文发表)
+    save_path_tiff = os.path.join(save_dir, 'fig1_completion_rate_combined.tiff')
+    plt.savefig(save_path_tiff, dpi=300, bbox_inches='tight', format='tiff')
+    print(f'✓ 图1已保存(TIFF): {save_path_tiff}')
+
     plt.close()
 
 
@@ -133,9 +142,17 @@ def plot_waiting_time():
 
     # 保存
     save_dir = 'results/visualizations'
-    save_path = os.path.join(save_dir, 'fig2_waiting_time.png')
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    print(f'✓ 图2已保存: {save_path}')
+
+    # 保存PNG格式 (便于预览)
+    save_path_png = os.path.join(save_dir, 'fig2_waiting_time.png')
+    plt.savefig(save_path_png, dpi=300, bbox_inches='tight')
+    print(f'✓ 图2已保存(PNG): {save_path_png}')
+
+    # 保存TIFF格式 (适合论文发表)
+    save_path_tiff = os.path.join(save_dir, 'fig2_waiting_time.tiff')
+    plt.savefig(save_path_tiff, dpi=300, bbox_inches='tight', format='tiff')
+    print(f'✓ 图2已保存(TIFF): {save_path_tiff}')
+
     plt.close()
 
 
@@ -198,9 +215,17 @@ def plot_average_performance():
 
     # 保存
     save_dir = 'results/visualizations'
-    save_path = os.path.join(save_dir, 'fig3_average_performance.png')
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    print(f'✓ 图3已保存: {save_path}')
+
+    # 保存PNG格式 (便于预览)
+    save_path_png = os.path.join(save_dir, 'fig3_average_performance.png')
+    plt.savefig(save_path_png, dpi=300, bbox_inches='tight')
+    print(f'✓ 图3已保存(PNG): {save_path_png}')
+
+    # 保存TIFF格式 (适合论文发表)
+    save_path_tiff = os.path.join(save_dir, 'fig3_average_performance.tiff')
+    plt.savefig(save_path_tiff, dpi=300, bbox_inches='tight', format='tiff')
+    print(f'✓ 图3已保存(TIFF): {save_path_tiff}')
+
     plt.close()
 
 

@@ -1,7 +1,7 @@
 import os
 import random
 import sys
-from collections import deque, defaultdict
+from collections import defaultdict
 from datetime import datetime
 
 import numpy as np

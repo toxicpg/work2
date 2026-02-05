@@ -2,12 +2,12 @@
 """
 测试H-MARL修复后的Manager输出
 """
-import sys
 import os
+import sys
+
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import torch
-import torch.nn.functional as F
 from config import Config
 from baselines.hmarl_agent import MFuN_Agent, ManagerNetwork
 

@@ -2,9 +2,8 @@
 可视化车辆初始分布密度
 展示均匀分布和不同标准差的正态分布 (σ=1,3,5,7)
 """
-import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
+import numpy as np
 from matplotlib import rcParams
 
 # 设置中文字体
@@ -302,19 +301,32 @@ if __name__ == '__main__':
         # 调整布局，增加边距使网格居中
         plt.subplots_adjust(left=0.15, right=0.85, top=0.92, bottom=0.08)
 
-        # 保存图片
-        output_path = os.path.join(output_dir, f'vehicle_dist_{filename}.png')
-        fig.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white', pad_inches=0.5)
-        print(f"  ✓ {label}: {output_path}")
+        # 保存PNG格式 (便于预览)
+        output_path_png = os.path.join(output_dir, f'vehicle_dist_{filename}.png')
+        fig.savefig(output_path_png, dpi=300, bbox_inches='tight', facecolor='white', pad_inches=0.5)
+        print(f"  ✓ {label}(PNG): {output_path_png}")
+
+        # 保存TIFF格式 (适合论文发表)
+        output_path_tiff = os.path.join(output_dir, f'vehicle_dist_{filename}.tiff')
+        fig.savefig(output_path_tiff, dpi=300, bbox_inches='tight', facecolor='white', pad_inches=0.5, format='tiff')
+        print(f"  ✓ {label}(TIFF): {output_path_tiff}")
 
         plt.close(fig)
 
     # 生成统计对比图
     print("\n生成统计对比图...")
     fig2 = plot_comparison_histogram(NUM_VEHICLES, GRID_SIZE, SEED)
-    output_path2 = os.path.join(output_dir, 'vehicle_distribution_stats.png')
-    fig2.savefig(output_path2, dpi=300, bbox_inches='tight')
-    print(f"  ✓ 保存到: {output_path2}")
+
+    # 保存PNG格式
+    output_path2_png = os.path.join(output_dir, 'vehicle_distribution_stats.png')
+    fig2.savefig(output_path2_png, dpi=300, bbox_inches='tight')
+    print(f"  ✓ 保存到(PNG): {output_path2_png}")
+
+    # 保存TIFF格式
+    output_path2_tiff = os.path.join(output_dir, 'vehicle_distribution_stats.tiff')
+    fig2.savefig(output_path2_tiff, dpi=300, bbox_inches='tight', format='tiff')
+    print(f"  ✓ 保存到(TIFF): {output_path2_tiff}")
+
     plt.close(fig2)
 
     print("\n" + "="*80)

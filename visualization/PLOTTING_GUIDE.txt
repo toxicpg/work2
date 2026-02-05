@@ -1,0 +1,187 @@
+================================================================================
+                          可视化脚本使用指南
+================================================================================
+
+所有绘图脚本已更新为同时保存 PNG 和 TIFF 两种格式
+- PNG: 便于预览和快速查看 (dpi=300)
+- TIFF: 适合论文发表,无损压缩 (dpi=300)
+
+================================================================================
+一、主要实验结果图
+================================================================================
+
+1. 主实验结果对比 (3张图)
+   文件: visualization/plot_main_results.py
+
+   生成图表:
+   - fig1_completion_rate_combined.png/.tiff  (匹配率)
+   - fig2_waiting_time.png/.tiff              (等待时间)
+   - fig3_average_performance.png/.tiff       (平均性能)
+
+   运行方法:
+   python3 visualization/plot_main_results.py
+
+
+2. 方法对比图 (5种方法: MGCN-D3QN, CNN-DDQN, SARSA(λ)-SAA, Random Walk, Random Dispatch)
+   文件: visualization/plot_comparison_grouped.py
+
+   生成图表:
+   - comparison_grouped_completion_rate.png/.tiff  (匹配率分组柱状图)
+   - comparison_grouped_waiting_time.png/.tiff     (等待时间分组柱状图)
+   - comparison_stacked_orders.png/.tiff           (订单匹配堆叠图+折线)
+
+   运行方法:
+   python3 visualization/plot_comparison_grouped.py
+
+
+================================================================================
+二、消融实验图
+================================================================================
+
+3. 消融实验对比图 (4种方法: Ours, CNN-D3QN, GCN(POI)-D3QN, GCN(Adj)-D3QN)
+   文件: visualization/plot_ablation_comparison.py
+
+   生成图表:
+   - ablation_feature_comparison.png/.tiff  (特征提取方法对比)
+
+   运行方法:
+   python3 visualization/plot_ablation_comparison.py
+
+   修改数据:
+   - 编辑脚本第26-30行
+   - matching_rates = [92.5, 89.3, 87.8, 86.2]  # 修改这里
+   - waiting_times = [215.4, 238.7, 251.3, 264.8]  # 修改这里
+
+
+4. 消融实验详细分析 (从JSON文件加载)
+   文件: plot_ablation_results.py
+
+   生成图表:
+   - ablation_comparison.png/.tiff              (对比分析)
+   - ablation_episodes_progression.png/.tiff    (训练进度)
+
+   运行方法:
+   python3 plot_ablation_results.py <result_file.json>
+
+   或者生成简单对比图:
+   - 编辑 plot_ablation_results.py
+   - 取消第416行的注释: test_simple_comparison()
+   - 运行: python3 plot_ablation_results.py
+
+
+================================================================================
+三、初始分布实验图
+================================================================================
+
+5. 初始分布对比图 (5种分布: 均匀, σ=1, σ=3, σ=5, σ=7)
+   文件: visualization/plot_distribution_comparison.py
+
+   生成图表:
+   - distribution_comparison.png/.tiff  (分布对比)
+
+   运行方法:
+   python3 visualization/plot_distribution_comparison.py
+
+   修改数据:
+   - 编辑脚本第23-27行
+   - matching_rates = [88.5, 85.2, 90.3, 92.1, 89.7]  # 修改这里
+   - waiting_times = [245.8, 268.3, 228.4, 218.6, 235.2]  # 修改这里
+
+
+6. 车辆分布密度可视化
+   文件: visualize_vehicle_distribution.py
+
+   生成图表:
+   - vehicle_dist_uniform.png/.tiff        (均匀分布)
+   - vehicle_dist_normal_std1.png/.tiff    (σ=1)
+   - vehicle_dist_normal_std3.png/.tiff    (σ=3)
+   - vehicle_dist_normal_std5.png/.tiff    (σ=5)
+   - vehicle_dist_normal_std7.png/.tiff    (σ=7)
+   - vehicle_distribution_stats.png/.tiff  (统计对比)
+
+   运行方法:
+   python3 visualize_vehicle_distribution.py
+
+
+================================================================================
+四、其他可视化工具
+================================================================================
+
+7. 热力图生成
+   文件: huatu.py
+
+   功能: 在地图上叠加透明订单热力图
+
+   生成图表:
+   - *_transparent_heatmap.png/.tiff
+
+   运行方法:
+   python3 huatu.py
+
+   修改输入:
+   - 编辑脚本第145行,修改图片路径
+
+
+8. 训练曲线
+   文件: plot_training_curves.py
+
+   生成图表:
+   - training_curves.png/.tiff
+   - waiting_time_curve.png/.tiff
+
+   运行方法:
+   从训练脚本中调用,或单独运行
+
+
+================================================================================
+五、输出目录
+================================================================================
+
+所有图表默认保存到:
+  results/visualizations/
+
+每张图都会生成两个版本:
+  - *.png  (预览用)
+  - *.tiff (论文发表用)
+
+
+================================================================================
+六、快速生成所有图表
+================================================================================
+
+运行以下命令生成所有主要图表:
+
+cd /Users/qiukuipeng/PycharmProjects/work2
+
+# 主实验结果
+python3 visualization/plot_main_results.py
+
+# 方法对比
+python3 visualization/plot_comparison_grouped.py
+
+# 消融实验
+python3 visualization/plot_ablation_comparison.py
+
+# 初始分布对比
+python3 visualization/plot_distribution_comparison.py
+
+# 车辆分布密度
+python3 visualize_vehicle_distribution.py
+
+
+================================================================================
+七、注意事项
+================================================================================
+
+1. 所有脚本中的数据都是模拟数据,请替换为真实实验结果
+2. TIFF格式文件较大,但质量更高,适合论文发表
+3. 如果遇到中文显示问题,检查字体设置:
+   plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS']
+4. 所有脚本的 dpi 都设置为 300,适合高质量输出
+5. 修改数据后直接运行脚本即可重新生成图表
+
+
+================================================================================
+最后更新: 2026-02-05
+================================================================================
+
